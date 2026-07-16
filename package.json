@@ -1,6 +1,6 @@
 {
   "name": "infratex",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Official Node.js SDK for the Infratex document intelligence API",
   "type": "module",
   "main": "./dist/cjs/index.js",
