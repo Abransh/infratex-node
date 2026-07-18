@@ -6,8 +6,10 @@ import type {
   DocumentIndex,
   DocumentListOptions,
   DocumentListResponse,
+  DocumentUpdateOptions,
   ImageUploadOptions,
   IndexCreateOptions,
+  IndexMethod,
   IndexResponse,
   UploadOptions,
   UploadResponse,
@@ -47,7 +49,6 @@ export class Documents {
     form.append('file', new Blob([bytes], { type: 'application/pdf' }), filename);
 
     if (options?.method) form.append('method', options.method);
-    if (options?.pipeline) form.append('pipeline', options.pipeline);
     if (options?.collection_id) form.append('collection_id', options.collection_id);
 
     const created = await this.http.postMultipart<Document>('/api/v1/documents', form);
@@ -74,9 +75,6 @@ export class Documents {
     }
 
     const method = options?.method ?? 'standard';
-    if (method !== 'standard' && method !== 'max') {
-      throw new Error("image uploads support only 'standard' and 'max'");
-    }
 
     const form = new FormData();
     for (const file of files) {
@@ -136,10 +134,48 @@ export class Documents {
   }
 
   /**
+   * Rename a document or change its collection assignment.
+   * Provide `filename`, `collection_id`, or `remove_collection`.
+   */
+  async update(id: string, options: DocumentUpdateOptions): Promise<Document> {
+    if (options.collection_id !== undefined && options.remove_collection) {
+      throw new Error('collection_id and remove_collection cannot be used together');
+    }
+
+    const body: Record<string, unknown> = {};
+    if (options.filename !== undefined) body.filename = options.filename;
+    if (options.collection_id !== undefined) body.collection_id = options.collection_id;
+    if (options.remove_collection) body.remove_collection = true;
+
+    if (Object.keys(body).length === 0) {
+      throw new Error('update requires filename, collection_id, or remove_collection');
+    }
+
+    return this.normalizeDocument(await this.http.patch<Document>(`/api/v1/documents/${id}`, body));
+  }
+
+  /**
    * Delete a document.
    */
   async delete(id: string): Promise<void> {
     await this.http.delete(`/api/v1/documents/${id}`);
+  }
+
+  /**
+   * Block until the document finishes parsing and return its markdown payload.
+   */
+  async waitUntilParsed(id: string): Promise<UploadResponse> {
+    return this.waitForUploadedDocument(id);
+  }
+
+  /**
+   * Block until the method-specific index reaches `indexed`.
+   */
+  async waitUntilIndexed(
+    id: string,
+    options?: { method?: IndexMethod },
+  ): Promise<IndexResponse> {
+    return this.waitForDocumentIndex(id, options?.method ?? 'vector');
   }
 
   /**
@@ -182,7 +218,6 @@ export class Documents {
           status: document.status,
           method: document.method,
           filename: document.filename,
-          pipeline: document.pipeline,
           page_count: document.page_count,
           markdown: await this.markdown(id),
           extraction_ms: document.processing_time_ms ?? 0,

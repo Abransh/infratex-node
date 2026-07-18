@@ -1,5 +1,5 @@
 export { Infratex } from './client.js';
-export { InfratexError } from './http.js';
+export { InfratexError, BinaryResponse } from './http.js';
 export { ResponseStream } from './resources/responses.js';
 export { SDK_VERSION } from './version.js';
 
@@ -8,7 +8,6 @@ export type {
   InfratexConfig,
   InfratexErrorBody,
   ParseMethod,
-  BasePipeline,
   DocStatus,
   DocumentRegion,
   DocumentExtractionPage,
@@ -17,6 +16,7 @@ export type {
   DocumentListResponse,
   UploadOptions,
   ImageUploadOptions,
+  DocumentUpdateOptions,
   DocumentListOptions,
   IndexMethod,
   IndexCreateOptions,
@@ -33,6 +33,18 @@ export type {
   ResponseErrorEvent,
   ResponseDoneEvent,
   ResponseEvent,
+  FieldType,
+  FieldDefinition,
+  ExtractionModel,
+  ExtractionStatus,
+  ExtractionTier,
+  ExportFormat,
+  ExtractionCreateOptions,
+  ExtractionGetOptions,
+  ExtractionListOptions,
+  ExtractionExportOptions,
+  ExtractionRun,
+  ExtractionRunListResponse,
   Collection,
   CollectionCreateOptions,
   CollectionUpdateOptions,
@@ -43,6 +55,7 @@ export type {
   ConversationCreateOptions,
   Tenant,
   AccountResponse,
+  AccountSettings,
   BillingTransaction,
   BillingUsageEvent,
   BillingServiceSpend,

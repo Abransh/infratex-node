@@ -25,8 +25,7 @@ export interface InfratexErrorBody {
 // Documents
 // ---------------------------------------------------------------------------
 
-export type ParseMethod = 'legacy' | 'experimental' | 'standard' | 'max' | 'cost-efficient';
-export type BasePipeline = 'traditional' | 'math';
+export type ParseMethod = 'standard' | 'max' | 'standard-ultra-2' | 'infratex-phi';
 export type DocStatus = 'pending' | 'processing' | 'done' | 'parsed' | 'indexed' | 'error';
 export type IndexStatus = 'pending' | 'processing' | 'indexed' | 'error';
 
@@ -52,7 +51,6 @@ export interface UploadResponse {
   status: string;
   method: ParseMethod;
   filename: string;
-  pipeline: string | null;
   page_count: number | null;
   markdown: string | null;
   extraction_ms: number;
@@ -86,10 +84,8 @@ export interface DocumentListResponse {
 export interface UploadOptions {
   /** Original filename. Required when uploading a Buffer. */
   filename?: string;
-  /** Parse method. Defaults to `standard`. */
+  /** Parse method: `standard` (default), `max`, `infratex-phi`, or `standard-ultra-2`. */
   method?: ParseMethod;
-  /** Pipeline (only for method `legacy`). */
-  pipeline?: BasePipeline;
   /** Assign to a collection on upload. */
   collection_id?: string;
   /** When false, return the queued document resource immediately. */
@@ -97,12 +93,21 @@ export interface UploadOptions {
 }
 
 export interface ImageUploadOptions {
-  /** Parse method. Image uploads support only `standard` and `max`. */
-  method?: 'standard' | 'max';
+  /** Parse method: `standard` (default), `max`, `infratex-phi`, or `standard-ultra-2`. */
+  method?: ParseMethod;
   /** Assign to a collection on upload. */
   collection_id?: string;
   /** When false, return the queued document resource immediately. */
   wait?: boolean;
+}
+
+export interface DocumentUpdateOptions {
+  /** New filename. */
+  filename?: string;
+  /** Move the document into this collection. */
+  collection_id?: string;
+  /** Detach the document from its current collection. */
+  remove_collection?: boolean;
 }
 
 export interface DocumentListOptions {
@@ -239,6 +244,90 @@ export type ResponseEvent =
   | ResponseDoneEvent;
 
 // ---------------------------------------------------------------------------
+// Extractions
+// ---------------------------------------------------------------------------
+
+export type FieldType =
+  | 'string'
+  | 'number'
+  | 'integer'
+  | 'boolean'
+  | 'date'
+  | 'enum'
+  | 'object'
+  | 'array';
+
+export interface FieldDefinition {
+  name: string;
+  type: FieldType;
+  description: string;
+  instructions?: string | null;
+  required?: boolean;
+  /** Required when `type` is `enum`; forbidden otherwise. */
+  enum_values?: string[] | null;
+  /** Required when `type` is `object`; a list of nested fields. */
+  properties?: FieldDefinition[] | null;
+  /** Required when `type` is `array`; the element field definition. */
+  items?: FieldDefinition | null;
+}
+
+export type ExtractionModel = 'fast' | 'pro';
+export type ExtractionStatus = 'pending' | 'processing' | 'done' | 'error';
+export type ExtractionTier = 'S' | 'M' | 'L';
+export type ExportFormat = 'csv' | 'xlsx';
+
+export interface ExtractionCreateOptions {
+  /** The parsed document to extract from. */
+  document_id: string;
+  /** Inline field definitions. Mutually exclusive with `template_id`. */
+  inline_fields?: FieldDefinition[];
+  /** Reference a dashboard-managed template. Mutually exclusive with `inline_fields`. */
+  template_id?: string;
+  /** Optional system prompt. Only valid alongside `inline_fields`. */
+  inline_system_prompt?: string;
+  /** `fast` (default) or `pro`. */
+  model?: ExtractionModel;
+  /** Compute and return evidence payloads on the run. */
+  include_evidence?: boolean;
+}
+
+export interface ExtractionGetOptions {
+  include_evidence?: boolean;
+}
+
+export interface ExtractionListOptions {
+  limit?: number;
+  offset?: number;
+  include_evidence?: boolean;
+}
+
+export interface ExtractionExportOptions {
+  format?: ExportFormat;
+}
+
+export interface ExtractionRun {
+  id: string;
+  document_id: string;
+  template_id: string | null;
+  status: ExtractionStatus;
+  tier: ExtractionTier | null;
+  model: string;
+  result: Record<string, unknown> | null;
+  evidence: Record<string, unknown> | null;
+  processing_time_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExtractionRunListResponse {
+  runs: ExtractionRun[];
+  total: number;
+}
+
+// ---------------------------------------------------------------------------
 // Collections
 // ---------------------------------------------------------------------------
 
@@ -305,6 +394,13 @@ export interface Tenant {
 
 export interface AccountResponse {
   tenant: Tenant;
+}
+
+export interface AccountSettings {
+  allow_overage: boolean;
+  monthly_spend_cap_micros: number | null;
+  low_balance_threshold_micros: number;
+  has_payment_method: boolean;
 }
 
 // ---------------------------------------------------------------------------

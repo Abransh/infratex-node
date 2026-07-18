@@ -3,6 +3,7 @@ import type { InfratexConfig } from './types.js';
 import { Documents } from './resources/documents.js';
 import { Searches } from './resources/searches.js';
 import { Responses } from './resources/responses.js';
+import { Extractions } from './resources/extractions.js';
 import { Collections } from './resources/collections.js';
 import { Conversations } from './resources/conversations.js';
 import { Account } from './resources/account.js';
@@ -15,6 +16,7 @@ export class Infratex {
   readonly documents: Documents;
   readonly searches: Searches;
   readonly responses: Responses;
+  readonly extractions: Extractions;
   readonly collections: Collections;
   readonly conversations: Conversations;
   readonly account: Account;
@@ -37,6 +39,7 @@ export class Infratex {
     this.documents = new Documents(http);
     this.searches = new Searches(http);
     this.responses = new Responses(http);
+    this.extractions = new Extractions(http);
     this.collections = new Collections(http);
     this.conversations = new Conversations(http);
     this.account = new Account(http);

@@ -1,5 +1,31 @@
+import { writeFile } from 'node:fs/promises';
 import type { InfratexErrorBody } from './types.js';
 import { SDK_VERSION } from './version.js';
+
+// ---------------------------------------------------------------------------
+// Binary response (file downloads, e.g. extraction exports)
+// ---------------------------------------------------------------------------
+
+export class BinaryResponse {
+  /** Raw file bytes. */
+  readonly content: Uint8Array;
+  /** Suggested filename parsed from the Content-Disposition header, if present. */
+  readonly filename: string | undefined;
+  /** MIME type from the Content-Type header, if present. */
+  readonly contentType: string | undefined;
+
+  constructor(content: Uint8Array, filename?: string, contentType?: string) {
+    this.content = content;
+    this.filename = filename;
+    this.contentType = contentType;
+  }
+
+  /** Write the payload to `path` and return the path written. */
+  async save(path: string): Promise<string> {
+    await writeFile(path, this.content);
+    return path;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Custom error class
@@ -149,6 +175,38 @@ export class HttpClient {
       signal: AbortSignal.timeout(this.timeout),
     });
     return this.handleResponse<T>(res);
+  }
+
+  async getBinary(
+    path: string,
+    query?: Record<string, string | number | undefined>,
+  ): Promise<BinaryResponse> {
+    const url = new URL(this.url(path));
+    if (query) {
+      for (const [k, v] of Object.entries(query)) {
+        if (v !== undefined) url.searchParams.set(k, String(v));
+      }
+    }
+
+    const res = await fetch(url.toString(), {
+      method: 'GET',
+      headers: this.headers(),
+      signal: AbortSignal.timeout(this.timeout),
+    });
+
+    if (!res.ok) {
+      // Reuse the JSON error path
+      return this.handleResponse<BinaryResponse>(res);
+    }
+
+    const buffer = new Uint8Array(await res.arrayBuffer());
+    const disposition = res.headers.get('content-disposition') ?? '';
+    const match = disposition.match(/filename="?([^"]+)"?/i);
+    return new BinaryResponse(
+      buffer,
+      match?.[1],
+      res.headers.get('content-type') ?? undefined,
+    );
   }
 
   async postMultipart<T>(path: string, formData: FormData): Promise<T> {
