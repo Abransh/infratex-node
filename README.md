@@ -214,6 +214,14 @@ console.log(result.evidence);  // per-field evidence (present because include_ev
 // Reference a dashboard-managed template instead of inline fields
 const templated = await client.extractions.create({ document_id: 'doc-id', template_id: 'tpl-id' });
 
+// Exhaustive mode for list fields where every item matters (footnotes, line items):
+// reads every part of the document for array fields, then checks for missed items.
+const exhaustive = await client.extractions.create({
+  document_id: 'doc-id',
+  template_id: 'tpl-id',
+  completeness: 'exhaustive',
+});
+
 // List prior runs, then export tabular results
 const { runs } = await client.extractions.list('doc-id');
 const file = await client.extractions.export(run.id, { format: 'xlsx' }); // or 'csv'
@@ -223,7 +231,9 @@ await file.save('results.xlsx');
 Field definitions support nested shapes: `type` may be `string`, `number`, `integer`,
 `boolean`, `date`, `enum`, `object`, or `array`. Use `enum_values` for `enum`,
 `properties` (a list of fields) for `object`, and `items` (a single field) for `array`.
-Extraction templates are created and managed in the dashboard.
+Extraction templates are created and managed in the dashboard. `completeness` is
+`'standard'` (default) or `'exhaustive'`; exhaustive runs are slower and bill more tokens,
+and the run reports the mode it used in `run.completeness`.
 
 ### Collections
 

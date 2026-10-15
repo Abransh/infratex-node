@@ -56,6 +56,7 @@ export class Extractions {
     if (options.inline_system_prompt !== undefined) {
       body.inline_system_prompt = options.inline_system_prompt;
     }
+    if (options.completeness !== undefined) body.completeness = options.completeness;
 
     return this.http.post<ExtractionRun>(
       `/api/v1/documents/${options.document_id}/extractions`,

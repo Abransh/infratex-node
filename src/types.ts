@@ -335,6 +335,7 @@ export type ExtractionStatus = 'pending' | 'processing' | 'done' | 'error';
 /** `C` is an auto-chunked extraction of a large document that has no index. */
 export type ExtractionTier = 'S' | 'M' | 'L' | 'C';
 export type ExportFormat = 'csv' | 'xlsx';
+export type ExtractionCompleteness = 'standard' | 'exhaustive';
 
 export interface ExtractionCreateOptions {
   /** The parsed document to extract from. */
@@ -349,6 +350,13 @@ export interface ExtractionCreateOptions {
   model?: ExtractionModel;
   /** Compute and return evidence payloads on the run. */
   include_evidence?: boolean;
+  /**
+   * `standard` (server default) or `exhaustive`. Exhaustive reads every part of
+   * the document for array fields, merges and de-duplicates the items, then
+   * checks for missed ones. Slower, and bills more tokens; scalar fields are
+   * unaffected. Sent only when set.
+   */
+  completeness?: ExtractionCompleteness;
 }
 
 export interface ExtractionGetOptions {
@@ -372,6 +380,7 @@ export interface ExtractionRun {
   status: ExtractionStatus;
   tier: ExtractionTier | null;
   model: string;
+  completeness: ExtractionCompleteness;
   result: Record<string, unknown> | null;
   evidence: Record<string, unknown> | null;
   processing_time_ms: number | null;

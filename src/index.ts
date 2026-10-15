@@ -43,6 +43,7 @@ export type {
   ExtractionStatus,
   ExtractionTier,
   ExportFormat,
+  ExtractionCompleteness,
   ExtractionCreateOptions,
   ExtractionGetOptions,
   ExtractionListOptions,
