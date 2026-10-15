@@ -132,6 +132,12 @@ export interface MarkdownOptions {
    * document parsed with `table_format: 'html'` is always served as HTML.
    */
   table_format?: TableFormat;
+  /**
+   * Pass `false` to leave the generated `<description>` out of figure blocks
+   * (the server default keeps them). Omitted unless set, so servers that
+   * predate the parameter are unaffected.
+   */
+  figure_descriptions?: boolean;
 }
 
 export interface DocumentUpdateOptions {

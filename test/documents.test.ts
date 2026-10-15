@@ -119,3 +119,17 @@ test('markdown forwards table_format', async (t) => {
 
   assert.equal(last(requests).url.search, '?table_format=html');
 });
+
+test('markdown sends figure_descriptions only when set', async (t) => {
+  const requests = mockFetch(t, markdownResponse);
+  const client = createClient();
+
+  await client.documents.markdown('doc-1', { figure_descriptions: false });
+  await client.documents.markdown('doc-1', { table_format: 'html', figure_descriptions: true });
+  await client.documents.markdown('doc-1', { table_format: 'html' });
+
+  assert.deepEqual(
+    requests.map((request) => request.url.search),
+    ['?figure_descriptions=false', '?table_format=html&figure_descriptions=true', '?table_format=html'],
+  );
+});

@@ -150,8 +150,10 @@ export class Documents {
    * ```
    */
   async markdown(id: string, options?: MarkdownOptions): Promise<string> {
+    const figureDescriptions = options?.figure_descriptions;
     return this.http.get<string>(`/api/v1/documents/${id}/markdown`, {
       table_format: options?.table_format,
+      figure_descriptions: figureDescriptions === undefined ? undefined : String(figureDescriptions),
     });
   }
 

@@ -111,6 +111,7 @@ const { documents, total } = await client.documents.list({ limit: 50, status: 'p
 const one = await client.documents.get('doc-id');
 const markdown = await client.documents.markdown('doc-id');
 const htmlTables = await client.documents.markdown('doc-id', { table_format: 'html' }); // OTSL as <table>
+const noDescriptions = await client.documents.markdown('doc-id', { figure_descriptions: false });
 
 // Rename or move between collections
 await client.documents.update('doc-id', { filename: 'q3-report.pdf' });
