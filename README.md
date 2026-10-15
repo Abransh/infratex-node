@@ -113,6 +113,15 @@ const markdown = await client.documents.markdown('doc-id');
 const htmlTables = await client.documents.markdown('doc-id', { table_format: 'html' }); // OTSL as <table>
 const noDescriptions = await client.documents.markdown('doc-id', { figure_descriptions: false });
 
+// Figures cropped from a parsed PDF (any method). The figure block in the markdown
+// carries the same src (figures/p12-1.png); bbox is [x1, y1, x2, y2] in PDF points.
+const { figures } = await client.documents.listFigures('doc-id');
+for (const figure of figures) {
+  console.log(figure.page, figure.type, figure.src, figure.bbox);
+  const png = await client.documents.downloadFigure('doc-id', figure.name); // BinaryResponse
+  await png.save(figure.name);
+}
+
 // Rename or move between collections
 await client.documents.update('doc-id', { filename: 'q3-report.pdf' });
 await client.documents.update('doc-id', { collection_id: 'col-id' });

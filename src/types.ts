@@ -87,6 +87,26 @@ export interface Document {
   indexes?: DocumentIndex[];
 }
 
+/** A figure cropped from a parsed PDF. */
+export interface DocumentFigure {
+  /** File name of the crop, e.g. `p12-1.png`. */
+  name: string;
+  /** The `src` the figure block in the Markdown carries, e.g. `figures/p12-1.png`. */
+  src: string;
+  page: number;
+  index: number;
+  /** Figure type, e.g. `chart`, `diagram`, `photo`, `table-image`, `logo`, `other`. */
+  type: string;
+  score: number;
+  /** `[x1, y1, x2, y2]` in PDF points (1/72 inch), origin top-left of the page. */
+  bbox: number[];
+}
+
+export interface DocumentFiguresResponse {
+  document_id: string;
+  figures: DocumentFigure[];
+}
+
 export interface DocumentListResponse {
   documents: Document[];
   total: number;

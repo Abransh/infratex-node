@@ -3,6 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { BinaryResponse, InfratexError } from '../src/index.js';
 import { createClient, formOf, json, last, mockFetch } from './helpers.js';
 
 const QUEUED = { id: 'doc-1', filename: 'report.pdf', status: 'pending', method: 'standard' };
@@ -131,5 +132,65 @@ test('markdown sends figure_descriptions only when set', async (t) => {
   assert.deepEqual(
     requests.map((request) => request.url.search),
     ['?figure_descriptions=false', '?table_format=html&figure_descriptions=true', '?table_format=html'],
+  );
+});
+
+const FIGURES = {
+  document_id: 'doc-1',
+  figures: [
+    {
+      name: 'p2-1.png',
+      src: 'figures/p2-1.png',
+      page: 2,
+      index: 1,
+      type: 'chart',
+      score: 0.93,
+      bbox: [72.0, 100.5, 300.0, 280.25],
+    },
+  ],
+};
+
+test('listFigures returns the figure manifest', async (t) => {
+  const requests = mockFetch(t, () => json(FIGURES));
+
+  const result = await createClient().documents.listFigures('doc-1');
+
+  assert.equal(last(requests).url.pathname, '/api/v1/documents/doc-1/figures');
+  assert.deepEqual(result, FIGURES);
+});
+
+const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01]);
+const png = () => new Response(PNG, { headers: { 'content-type': 'image/png' } });
+
+test('downloadFigure returns PNG bytes named after the figure', async (t) => {
+  const requests = mockFetch(t, png);
+
+  const figure = await createClient().documents.downloadFigure('doc-1', 'p2-1.png');
+
+  assert.equal(last(requests).url.pathname, '/api/v1/documents/doc-1/figures/p2-1.png');
+  assert.ok(figure instanceof BinaryResponse);
+  assert.deepEqual(figure.content, PNG);
+  assert.equal(figure.contentType, 'image/png');
+  assert.equal(figure.filename, 'p2-1.png');
+});
+
+test('downloadFigure accepts the markdown src', async (t) => {
+  const requests = mockFetch(t, png);
+
+  await createClient().documents.downloadFigure('doc-1', 'figures/p2-1.png');
+
+  assert.equal(last(requests).url.pathname, '/api/v1/documents/doc-1/figures/p2-1.png');
+});
+
+test('downloadFigure throws InfratexError for a missing figure', async (t) => {
+  mockFetch(t, () => json({ code: 'not_found', message: 'Figure not found', details: null }, 404));
+
+  await assert.rejects(
+    createClient().documents.downloadFigure('doc-1', 'p9-9.png'),
+    (error: unknown) =>
+      error instanceof InfratexError &&
+      error.status === 404 &&
+      error.code === 'not_found' &&
+      error.message === 'Figure not found',
   );
 });

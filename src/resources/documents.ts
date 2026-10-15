@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { HttpClient, InfratexError } from '../http.js';
+import { BinaryResponse, HttpClient, InfratexError } from '../http.js';
 import type {
   Document,
+  DocumentFiguresResponse,
   DocumentIndex,
   DocumentListOptions,
   DocumentListResponse,
@@ -155,6 +156,43 @@ export class Documents {
       table_format: options?.table_format,
       figure_descriptions: figureDescriptions === undefined ? undefined : String(figureDescriptions),
     });
+  }
+
+  /**
+   * List the figures cropped from a parsed PDF: page, type, detection score,
+   * bounding box in PDF points and the `src` its figure block in the Markdown
+   * carries. Empty when the document has no figures or they could not be
+   * matched reliably.
+   */
+  async listFigures(id: string): Promise<DocumentFiguresResponse> {
+    return this.http.get<DocumentFiguresResponse>(`/api/v1/documents/${id}/figures`);
+  }
+
+  /**
+   * Download one cropped figure as PNG bytes.
+   *
+   * `name` is a figure's `name` (`p12-1.png`); its `src` (`figures/p12-1.png`)
+   * is accepted too.
+   *
+   * @example
+   * ```ts
+   * const { figures } = await client.documents.listFigures('doc-id');
+   * for (const figure of figures) {
+   *   const png = await client.documents.downloadFigure('doc-id', figure.name);
+   *   await png.save(figure.name);
+   * }
+   * ```
+   */
+  async downloadFigure(id: string, name: string): Promise<BinaryResponse> {
+    const filename = name.slice(name.lastIndexOf('/') + 1);
+    const response = await this.http.getBinary(
+      `/api/v1/documents/${id}/figures/${encodeURIComponent(filename)}`,
+    );
+    return new BinaryResponse(
+      response.content,
+      response.filename ?? filename,
+      response.contentType,
+    );
   }
 
   /**

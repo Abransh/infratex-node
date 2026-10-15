@@ -12,6 +12,8 @@ export type {
   DocStatus,
   DocumentRegion,
   DocumentExtractionPage,
+  DocumentFigure,
+  DocumentFiguresResponse,
   UploadResponse,
   Document,
   DocumentListResponse,
