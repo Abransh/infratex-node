@@ -25,7 +25,12 @@ export interface InfratexErrorBody {
 // Documents
 // ---------------------------------------------------------------------------
 
-export type ParseMethod = 'standard' | 'max' | 'standard-ultra-2' | 'infratex-phi';
+export type ParseMethod =
+  | 'standard'
+  | 'max'
+  | 'standard-ultra-2'
+  | 'infratex-phi'
+  | 'infratex-gamma';
 export type DocStatus = 'pending' | 'processing' | 'done' | 'parsed' | 'indexed' | 'error';
 export type IndexStatus = 'pending' | 'processing' | 'indexed' | 'error';
 
@@ -84,7 +89,10 @@ export interface DocumentListResponse {
 export interface UploadOptions {
   /** Original filename. Required when uploading a Buffer. */
   filename?: string;
-  /** Parse method: `standard` (default), `max`, `infratex-phi`, or `standard-ultra-2`. */
+  /**
+   * Parse method: `standard` (default), `max`, `infratex-phi`, `infratex-gamma`,
+   * or `standard-ultra-2`.
+   */
   method?: ParseMethod;
   /** Assign to a collection on upload. */
   collection_id?: string;
@@ -93,7 +101,10 @@ export interface UploadOptions {
 }
 
 export interface ImageUploadOptions {
-  /** Parse method: `standard` (default), `max`, `infratex-phi`, or `standard-ultra-2`. */
+  /**
+   * Parse method: `standard` (default), `max`, `infratex-phi`, `infratex-gamma`,
+   * or `standard-ultra-2`.
+   */
   method?: ParseMethod;
   /** Assign to a collection on upload. */
   collection_id?: string;
