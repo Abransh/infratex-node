@@ -15,23 +15,30 @@ import type {
   UploadResponse,
 } from '../types.js';
 
+const DOCX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 export class Documents {
   private readonly pollIntervalMs = 1000;
 
   constructor(private readonly http: HttpClient) {}
 
   /**
-   * Upload and parse a PDF document.
+   * Upload and parse a PDF or Word (`.docx`) document.
    *
    * Accepts either a file path (string) or a Buffer.
    * When passing a Buffer, provide `options.filename`.
    *
+   * A `.docx` is read from the file itself and billed at the `standard` price
+   * whatever `method` is sent; the document reports `standard` as its method.
+   *
    * @example
    * ```ts
-  * const doc = await client.documents.upload('/path/to/report.pdf');
-  * const doc = await client.documents.upload(buffer, { filename: 'report.pdf' });
-  * ```
-  */
+   * const doc = await client.documents.upload('/path/to/report.pdf');
+   * const doc = await client.documents.upload(buffer, { filename: 'report.pdf' });
+   * const doc = await client.documents.upload('/path/to/contract.docx');
+   * ```
+   */
   async upload(
     file: string | Buffer,
     options: UploadOptions & { wait: false },
@@ -44,9 +51,11 @@ export class Documents {
     file: string | Buffer,
     options?: UploadOptions,
   ): Promise<Document | UploadResponse> {
-    const { bytes, filename } = await this.loadUploadInput(file, options?.filename, 'upload.pdf');
+    const fallbackFilename =
+      typeof file !== 'string' && isZipArchive(file) ? 'upload.docx' : 'upload.pdf';
+    const { bytes, filename } = await this.loadUploadInput(file, options?.filename, fallbackFilename);
     const form = new FormData();
-    form.append('file', new Blob([bytes], { type: 'application/pdf' }), filename);
+    form.append('file', new Blob([bytes], { type: documentContentType(filename) }), filename);
 
     if (options?.method) form.append('method', options.method);
     if (options?.collection_id) form.append('collection_id', options.collection_id);
@@ -313,4 +322,17 @@ export class Documents {
     if (lower.endsWith('.webp')) return 'image/webp';
     return 'application/octet-stream';
   }
+}
+
+function documentContentType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.docx')) return DOCX_CONTENT_TYPE;
+  // The API identifies the document from its bytes; a neutral type is accepted.
+  return 'application/octet-stream';
+}
+
+/** A .docx is a ZIP package; a PDF starts with `%PDF`. */
+function isZipArchive(bytes: Uint8Array): boolean {
+  return bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }

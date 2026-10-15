@@ -2,7 +2,7 @@
 
 Official Node.js / TypeScript SDK for the [Infratex](https://infratex.io) document intelligence API.
 
-- Parse PDFs or ordered image batches into structured Markdown
+- Parse PDFs, Word documents, or ordered image batches into structured Markdown
 - Build vector and hybrid search indexes
 - Retrieve cited context and stream grounded AI answers
 - Extract structured fields from documents
@@ -59,6 +59,11 @@ Both `documents.upload(...)` and `documents.uploadImages(...)` accept any of the
 methods and default to `standard`. A method that is temporarily unavailable is rejected
 at upload with an `InfratexError` (status 503, code `method_unavailable`).
 
+`documents.upload(...)` also accepts a Word `.docx`. It is read from the file itself (no
+model call) and billed at the `standard` price whatever `method` you send; the document
+reports `standard` as its method. Legacy `.doc` and macro-enabled `.docm` files are
+rejected with status 415.
+
 ## API reference
 
 ### `new Infratex(config)`
@@ -75,6 +80,9 @@ at upload with an `InfratexError` (status 503, code `method_unavailable`).
 // Upload from a file path or Buffer — waits for parsing and returns markdown.
 const doc = await client.documents.upload('/path/to/file.pdf');
 const doc = await client.documents.upload(buffer, { filename: 'report.pdf', method: 'max' });
+
+// Word documents use the same call.
+const contract = await client.documents.upload('/path/to/contract.docx');
 
 // Upload an ordered image batch as document pages (file order = page order).
 const images = await client.documents.uploadImages(['/tmp/page-1.png', '/tmp/page-2.png'], {

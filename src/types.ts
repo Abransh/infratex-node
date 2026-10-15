@@ -87,7 +87,10 @@ export interface DocumentListResponse {
 }
 
 export interface UploadOptions {
-  /** Original filename. Required when uploading a Buffer. */
+  /**
+   * Original filename. Recommended when uploading a Buffer: its extension
+   * (`.pdf` or `.docx`) sets the file's content type.
+   */
   filename?: string;
   /**
    * Parse method: `standard` (default), `max`, `infratex-phi`, `infratex-gamma`,
