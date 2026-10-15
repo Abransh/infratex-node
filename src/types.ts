@@ -476,6 +476,11 @@ export interface AccountSettings {
 // Billing
 // ---------------------------------------------------------------------------
 
+/**
+ * One credit-ledger entry: a charge, refund, grant or top-up. Amounts are in
+ * micro-euros (1 credit = 5,000). A parse charge carries the document id in
+ * `source_id` and the file name and billed pages in `description` and `metadata`.
+ */
 export interface BillingTransaction {
   id: string;
   transaction_type: string;
@@ -525,4 +530,31 @@ export interface BillingSummaryResponse {
   spend_by_service: BillingServiceSpend[];
   daily_spend: BillingDailySpend[];
   totals: Record<string, number>;
+}
+
+export interface BillingTransactionListOptions {
+  /** Only transactions at or after this time (a `Date` or an ISO 8601 string). */
+  since?: Date | string;
+  /** Only transactions before this time. */
+  until?: Date | string;
+  /** Cursor: the `next_before` of the previous page. */
+  before?: Date | string;
+  /** Page size, 1 to 500. The server default is 100. */
+  limit?: number;
+}
+
+export interface BillingTransactionIterateOptions {
+  /** Only transactions at or after this time (a `Date` or an ISO 8601 string). */
+  since?: Date | string;
+  /** Only transactions before this time. */
+  until?: Date | string;
+  /** Transactions fetched per request, 1 to 500. Defaults to 500. */
+  page_size?: number;
+}
+
+/** A page of the credit ledger, newest first. */
+export interface BillingTransactionPage {
+  transactions: BillingTransaction[];
+  /** Pass as `before` to fetch the next (older) page; `null` on the last page. */
+  next_before: string | null;
 }

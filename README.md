@@ -265,7 +265,26 @@ console.log(settings.allow_overage, settings.monthly_spend_cap_micros);
 
 const billing = await client.billing.get();
 console.log(billing.balance_micros, billing.totals);
+
+// The credit ledger, newest first: every charge, refund, grant and top-up with the
+// balance after it. Amounts are in micro-euros (1 credit = 5,000).
+const page = await client.billing.listTransactions({ since: '2026-10-01T00:00:00Z', limit: 100 }); // limit <= 500
+for (const tx of page.transactions) {
+  console.log(tx.created_at, tx.transaction_type, tx.amount_micros, tx.description);
+}
+if (page.next_before) {
+  const older = await client.billing.listTransactions({ before: page.next_before });
+}
+
+// Or let the SDK follow next_before for you.
+for await (const tx of client.billing.iterTransactions({ since: new Date('2026-10-01T00:00:00Z') })) {
+  console.log(tx.source_id, tx.amount_micros);
+}
 ```
+
+`since` / `until` / `before` take a `Date` or an ISO 8601 string. A parse charge carries
+the document id in `source_id` and the file name and billed pages in `description` and
+`metadata`.
 
 ## Error handling
 
