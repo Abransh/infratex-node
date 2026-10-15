@@ -31,6 +31,12 @@ export type ParseMethod =
   | 'standard-ultra-2'
   | 'infratex-phi'
   | 'infratex-gamma';
+/**
+ * Table syntax the parser emits. Stored with the document and not changeable
+ * later: a document parsed as `otsl` can be read back as either syntax, one
+ * parsed as `html` only as HTML. `standard` always returns Markdown pipe tables.
+ */
+export type TableFormat = 'otsl' | 'html';
 export type DocStatus = 'pending' | 'processing' | 'done' | 'parsed' | 'indexed' | 'error';
 export type IndexStatus = 'pending' | 'processing' | 'indexed' | 'error';
 
@@ -97,6 +103,8 @@ export interface UploadOptions {
    * or `standard-ultra-2`.
    */
   method?: ParseMethod;
+  /** Table syntax: `otsl` (server default) or `html`. See {@link TableFormat}. */
+  table_format?: TableFormat;
   /** Assign to a collection on upload. */
   collection_id?: string;
   /** When false, return the queued document resource immediately. */
@@ -109,10 +117,21 @@ export interface ImageUploadOptions {
    * or `standard-ultra-2`.
    */
   method?: ParseMethod;
+  /** Table syntax: `otsl` (server default) or `html`. See {@link TableFormat}. */
+  table_format?: TableFormat;
   /** Assign to a collection on upload. */
   collection_id?: string;
   /** When false, return the queued document resource immediately. */
   wait?: boolean;
+}
+
+export interface MarkdownOptions {
+  /**
+   * `otsl` returns tables exactly as parsed; `html` converts every OTSL block to
+   * a `<table>`. Omitted by default, so the server default (`otsl`) applies. A
+   * document parsed with `table_format: 'html'` is always served as HTML.
+   */
+  table_format?: TableFormat;
 }
 
 export interface DocumentUpdateOptions {

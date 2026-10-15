@@ -76,3 +76,46 @@ test('upload does not reject other extensions', async (t) => {
   assert.equal(file.name, 'scan');
   assert.equal(file.type, 'application/octet-stream');
 });
+
+test('upload sends table_format only when given', async (t) => {
+  const requests = mockFetch(t, queued);
+  const client = createClient();
+
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', method: 'max', table_format: 'html', wait: false });
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', wait: false });
+
+  const [withFormat, withoutFormat] = requests.map(formOf);
+  assert.equal(withFormat?.get('table_format'), 'html');
+  assert.equal(withoutFormat?.has('table_format'), false);
+});
+
+test('uploadImages sends table_format', async (t) => {
+  const requests = mockFetch(t, queued);
+  const page = await tempFile('page-1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  await createClient().documents.uploadImages([page], { table_format: 'otsl', wait: false });
+
+  const request = last(requests);
+  assert.equal(request.url.pathname, '/api/v1/documents/images');
+  assert.equal(formOf(request).get('table_format'), 'otsl');
+});
+
+const markdownResponse = () =>
+  new Response('<!-- page:1 -->\n# Title', { headers: { 'content-type': 'text/markdown' } });
+
+test('markdown sends no query by default', async (t) => {
+  const requests = mockFetch(t, markdownResponse);
+
+  const text = await createClient().documents.markdown('doc-1');
+
+  assert.equal(text, '<!-- page:1 -->\n# Title');
+  assert.equal(last(requests).url.href, 'https://api.test/api/v1/documents/doc-1/markdown');
+});
+
+test('markdown forwards table_format', async (t) => {
+  const requests = mockFetch(t, markdownResponse);
+
+  await createClient().documents.markdown('doc-1', { table_format: 'html' });
+
+  assert.equal(last(requests).url.search, '?table_format=html');
+});

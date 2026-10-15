@@ -59,6 +59,12 @@ Both `documents.upload(...)` and `documents.uploadImages(...)` accept any of the
 methods and default to `standard`. A method that is temporarily unavailable is rejected
 at upload with an `InfratexError` (status 503, code `method_unavailable`).
 
+`table_format` (`'otsl'` or `'html'`) sets the table syntax the parser emits; it is
+honoured by `max`, `infratex-phi`, `infratex-gamma` and `standard-ultra-2` (`standard`
+returns Markdown pipe tables). It is stored with the document: a document parsed as
+`otsl` can be read back as either syntax with `documents.markdown(id, { table_format })`,
+one parsed as `html` only as HTML.
+
 `documents.upload(...)` also accepts a Word `.docx`. It is read from the file itself (no
 model call) and billed at the `standard` price whatever `method` you send; the document
 reports `standard` as its method. Legacy `.doc` and macro-enabled `.docm` files are
@@ -84,6 +90,12 @@ const doc = await client.documents.upload(buffer, { filename: 'report.pdf', meth
 // Word documents use the same call.
 const contract = await client.documents.upload('/path/to/contract.docx');
 
+// Table syntax: 'otsl' (default) or 'html'. Stored with the document, not changeable later.
+const gamma = await client.documents.upload('/path/to/file.pdf', {
+  method: 'infratex-gamma',
+  table_format: 'otsl',
+});
+
 // Upload an ordered image batch as document pages (file order = page order).
 const images = await client.documents.uploadImages(['/tmp/page-1.png', '/tmp/page-2.png'], {
   method: 'standard',
@@ -98,6 +110,7 @@ const ready = await client.documents.waitUntilParsed(queued.id); // or: get(queu
 const { documents, total } = await client.documents.list({ limit: 50, status: 'parsed' });
 const one = await client.documents.get('doc-id');
 const markdown = await client.documents.markdown('doc-id');
+const htmlTables = await client.documents.markdown('doc-id', { table_format: 'html' }); // OTSL as <table>
 
 // Rename or move between collections
 await client.documents.update('doc-id', { filename: 'q3-report.pdf' });

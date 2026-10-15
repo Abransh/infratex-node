@@ -11,6 +11,7 @@ import type {
   IndexCreateOptions,
   IndexMethod,
   IndexResponse,
+  MarkdownOptions,
   UploadOptions,
   UploadResponse,
 } from '../types.js';
@@ -58,6 +59,7 @@ export class Documents {
     form.append('file', new Blob([bytes], { type: documentContentType(filename) }), filename);
 
     if (options?.method) form.append('method', options.method);
+    if (options?.table_format) form.append('table_format', options.table_format);
     if (options?.collection_id) form.append('collection_id', options.collection_id);
 
     const created = await this.http.postMultipart<Document>('/api/v1/documents', form);
@@ -92,6 +94,9 @@ export class Documents {
     }
 
     form.append('method', method);
+    if (options?.table_format) {
+      form.append('table_format', options.table_format);
+    }
     if (options?.collection_id) {
       form.append('collection_id', options.collection_id);
     }
@@ -137,9 +142,17 @@ export class Documents {
 
   /**
    * Download the extracted markdown for a document.
+   *
+   * @example
+   * ```ts
+   * const markdown = await client.documents.markdown('doc-id');
+   * const withHtmlTables = await client.documents.markdown('doc-id', { table_format: 'html' });
+   * ```
    */
-  async markdown(id: string): Promise<string> {
-    return this.http.get<string>(`/api/v1/documents/${id}/markdown`);
+  async markdown(id: string, options?: MarkdownOptions): Promise<string> {
+    return this.http.get<string>(`/api/v1/documents/${id}/markdown`, {
+      table_format: options?.table_format,
+    });
   }
 
   /**
