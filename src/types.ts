@@ -332,7 +332,8 @@ export interface FieldDefinition {
 
 export type ExtractionModel = 'fast' | 'pro';
 export type ExtractionStatus = 'pending' | 'processing' | 'done' | 'error';
-export type ExtractionTier = 'S' | 'M' | 'L';
+/** `C` is an auto-chunked extraction of a large document that has no index. */
+export type ExtractionTier = 'S' | 'M' | 'L' | 'C';
 export type ExportFormat = 'csv' | 'xlsx';
 
 export interface ExtractionCreateOptions {
