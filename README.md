@@ -304,6 +304,15 @@ try {
 }
 ```
 
+## Development
+
+```bash
+npm ci
+npm test            # node:test suite with mocked fetch, no API key needed
+npm run typecheck   # strict tsc over src/ and test/
+npm run build       # ESM + CJS output in dist/
+```
+
 ## License
 
 MIT
