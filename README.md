@@ -2,7 +2,7 @@
 
 Official Node.js / TypeScript SDK for the [Infratex](https://infratex.io) document intelligence API.
 
-- Parse PDFs or ordered image batches into structured Markdown
+- Parse PDFs, Word documents, or ordered image batches into structured Markdown
 - Build vector and hybrid search indexes
 - Retrieve cited context and stream grounded AI answers
 - Extract structured fields from documents
@@ -49,13 +49,26 @@ Use a server-side key (`infratex_sk_...`); keep it out of browser code.
 
 | Method | Credits / page | Notes |
 |--------|----------------|-------|
-| `standard` | 1 | Default. Fast, high-quality Markdown. |
-| `max` | 3 | Gemini parser; adds brief `[visual-note: ...]` lines for charts, figures, and photos. |
-| `infratex-phi` | 3 | Self-hosted vision engine. |
-| `standard-ultra-2` | 3 | GPT vision parser (API-only). |
+| `standard` | 1 | Default. Fast, high-quality Markdown for most documents. |
+| `max` | 3 | Figures are marked, captioned, and described. For documents where charts, diagrams, and photos carry meaning. |
+| `infratex-phi` | 3 | Proprietary in-house model. Dense tables, financial statements, faithfulness-first OCR. |
+| `infratex-gamma` | 1 | Layout-aware OCR. Faithful text and tables at volume, with a bounding box for every region. |
+| `standard-ultra-2` | 3 | High-fidelity vision for complex nested tables and chart-heavy reports (API-only). |
 
 Both `documents.upload(...)` and `documents.uploadImages(...)` accept any of these
-methods and default to `standard`.
+methods and default to `standard`. A method that is temporarily unavailable is rejected
+at upload with an `InfratexError` (status 503, code `method_unavailable`).
+
+`table_format` (`'otsl'` or `'html'`) sets the table syntax the parser emits; it is
+honoured by `max`, `infratex-phi`, `infratex-gamma` and `standard-ultra-2` (`standard`
+returns Markdown pipe tables). It is stored with the document: a document parsed as
+`otsl` can be read back as either syntax with `documents.markdown(id, { table_format })`,
+one parsed as `html` only as HTML.
+
+`documents.upload(...)` also accepts a Word `.docx`. It is read from the file itself (no
+model call) and billed at the `standard` price whatever `method` you send; the document
+reports `standard` as its method. Legacy `.doc` and macro-enabled `.docm` files are
+rejected with status 415.
 
 ## API reference
 
@@ -74,6 +87,15 @@ methods and default to `standard`.
 const doc = await client.documents.upload('/path/to/file.pdf');
 const doc = await client.documents.upload(buffer, { filename: 'report.pdf', method: 'max' });
 
+// Word documents use the same call.
+const contract = await client.documents.upload('/path/to/contract.docx');
+
+// Table syntax: 'otsl' (default) or 'html'. Stored with the document, not changeable later.
+const gamma = await client.documents.upload('/path/to/file.pdf', {
+  method: 'infratex-gamma',
+  table_format: 'otsl',
+});
+
 // Upload an ordered image batch as document pages (file order = page order).
 const images = await client.documents.uploadImages(['/tmp/page-1.png', '/tmp/page-2.png'], {
   method: 'standard',
@@ -88,6 +110,17 @@ const ready = await client.documents.waitUntilParsed(queued.id); // or: get(queu
 const { documents, total } = await client.documents.list({ limit: 50, status: 'parsed' });
 const one = await client.documents.get('doc-id');
 const markdown = await client.documents.markdown('doc-id');
+const htmlTables = await client.documents.markdown('doc-id', { table_format: 'html' }); // OTSL as <table>
+const noDescriptions = await client.documents.markdown('doc-id', { figure_descriptions: false });
+
+// Figures cropped from a parsed PDF (any method). The figure block in the markdown
+// carries the same src (figures/p12-1.png); bbox is [x1, y1, x2, y2] in PDF points.
+const { figures } = await client.documents.listFigures('doc-id');
+for (const figure of figures) {
+  console.log(figure.page, figure.type, figure.src, figure.bbox);
+  const png = await client.documents.downloadFigure('doc-id', figure.name); // BinaryResponse
+  await png.save(figure.name);
+}
 
 // Rename or move between collections
 await client.documents.update('doc-id', { filename: 'q3-report.pdf' });
@@ -181,6 +214,14 @@ console.log(result.evidence);  // per-field evidence (present because include_ev
 // Reference a dashboard-managed template instead of inline fields
 const templated = await client.extractions.create({ document_id: 'doc-id', template_id: 'tpl-id' });
 
+// Exhaustive mode for list fields where every item matters (footnotes, line items):
+// reads every part of the document for array fields, then checks for missed items.
+const exhaustive = await client.extractions.create({
+  document_id: 'doc-id',
+  template_id: 'tpl-id',
+  completeness: 'exhaustive',
+});
+
 // List prior runs, then export tabular results
 const { runs } = await client.extractions.list('doc-id');
 const file = await client.extractions.export(run.id, { format: 'xlsx' }); // or 'csv'
@@ -190,7 +231,9 @@ await file.save('results.xlsx');
 Field definitions support nested shapes: `type` may be `string`, `number`, `integer`,
 `boolean`, `date`, `enum`, `object`, or `array`. Use `enum_values` for `enum`,
 `properties` (a list of fields) for `object`, and `items` (a single field) for `array`.
-Extraction templates are created and managed in the dashboard.
+Extraction templates are created and managed in the dashboard. `completeness` is
+`'standard'` (default) or `'exhaustive'`; exhaustive runs are slower and bill more tokens,
+and the run reports the mode it used in `run.completeness`.
 
 ### Collections
 
@@ -222,7 +265,26 @@ console.log(settings.allow_overage, settings.monthly_spend_cap_micros);
 
 const billing = await client.billing.get();
 console.log(billing.balance_micros, billing.totals);
+
+// The credit ledger, newest first: every charge, refund, grant and top-up with the
+// balance after it. Amounts are in micro-euros (1 credit = 5,000).
+const page = await client.billing.listTransactions({ since: '2026-10-01T00:00:00Z', limit: 100 }); // limit <= 500
+for (const tx of page.transactions) {
+  console.log(tx.created_at, tx.transaction_type, tx.amount_micros, tx.description);
+}
+if (page.next_before) {
+  const older = await client.billing.listTransactions({ before: page.next_before });
+}
+
+// Or let the SDK follow next_before for you.
+for await (const tx of client.billing.iterTransactions({ since: new Date('2026-10-01T00:00:00Z') })) {
+  console.log(tx.source_id, tx.amount_micros);
+}
 ```
+
+`since` / `until` / `before` take a `Date` or an ISO 8601 string. A parse charge carries
+the document id in `source_id` and the file name and billed pages in `description` and
+`metadata`.
 
 ## Error handling
 
@@ -240,6 +302,15 @@ try {
     console.error(err.message);  // human-readable message
   }
 }
+```
+
+## Development
+
+```bash
+npm ci
+npm test            # node:test suite with mocked fetch, no API key needed
+npm run typecheck   # strict tsc over src/ and test/
+npm run build       # ESM + CJS output in dist/
 ```
 
 ## License

@@ -1,6 +1,6 @@
 {
   "name": "infratex",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Official Node.js SDK for the Infratex document intelligence API",
   "type": "module",
   "main": "./dist/cjs/index.js",
@@ -29,7 +29,9 @@
     "build:cjs": "tsc --project tsconfig.cjs.json",
     "build:cjs-package": "echo '{\"type\":\"commonjs\"}' > dist/cjs/package.json",
     "clean": "rm -rf dist",
-    "prepublishOnly": "npm run clean && npm run build"
+    "prepublishOnly": "npm run clean && npm run build",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "node --import tsx --test test/*.test.ts"
   },
   "keywords": [
     "infratex",
@@ -48,6 +50,7 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "tsx": "^4.23.15",
     "typescript": "^5.4.0"
   }
 }

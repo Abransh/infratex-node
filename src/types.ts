@@ -25,7 +25,18 @@ export interface InfratexErrorBody {
 // Documents
 // ---------------------------------------------------------------------------
 
-export type ParseMethod = 'standard' | 'max' | 'standard-ultra-2' | 'infratex-phi';
+export type ParseMethod =
+  | 'standard'
+  | 'max'
+  | 'standard-ultra-2'
+  | 'infratex-phi'
+  | 'infratex-gamma';
+/**
+ * Table syntax the parser emits. Stored with the document and not changeable
+ * later: a document parsed as `otsl` can be read back as either syntax, one
+ * parsed as `html` only as HTML. `standard` always returns Markdown pipe tables.
+ */
+export type TableFormat = 'otsl' | 'html';
 export type DocStatus = 'pending' | 'processing' | 'done' | 'parsed' | 'indexed' | 'error';
 export type IndexStatus = 'pending' | 'processing' | 'indexed' | 'error';
 
@@ -76,16 +87,44 @@ export interface Document {
   indexes?: DocumentIndex[];
 }
 
+/** A figure cropped from a parsed PDF. */
+export interface DocumentFigure {
+  /** File name of the crop, e.g. `p12-1.png`. */
+  name: string;
+  /** The `src` the figure block in the Markdown carries, e.g. `figures/p12-1.png`. */
+  src: string;
+  page: number;
+  index: number;
+  /** Figure type, e.g. `chart`, `diagram`, `photo`, `table-image`, `logo`, `other`. */
+  type: string;
+  score: number;
+  /** `[x1, y1, x2, y2]` in PDF points (1/72 inch), origin top-left of the page. */
+  bbox: number[];
+}
+
+export interface DocumentFiguresResponse {
+  document_id: string;
+  figures: DocumentFigure[];
+}
+
 export interface DocumentListResponse {
   documents: Document[];
   total: number;
 }
 
 export interface UploadOptions {
-  /** Original filename. Required when uploading a Buffer. */
+  /**
+   * Original filename. Recommended when uploading a Buffer: its extension
+   * (`.pdf` or `.docx`) sets the file's content type.
+   */
   filename?: string;
-  /** Parse method: `standard` (default), `max`, `infratex-phi`, or `standard-ultra-2`. */
+  /**
+   * Parse method: `standard` (default), `max`, `infratex-phi`, `infratex-gamma`,
+   * or `standard-ultra-2`.
+   */
   method?: ParseMethod;
+  /** Table syntax: `otsl` (server default) or `html`. See {@link TableFormat}. */
+  table_format?: TableFormat;
   /** Assign to a collection on upload. */
   collection_id?: string;
   /** When false, return the queued document resource immediately. */
@@ -93,12 +132,32 @@ export interface UploadOptions {
 }
 
 export interface ImageUploadOptions {
-  /** Parse method: `standard` (default), `max`, `infratex-phi`, or `standard-ultra-2`. */
+  /**
+   * Parse method: `standard` (default), `max`, `infratex-phi`, `infratex-gamma`,
+   * or `standard-ultra-2`.
+   */
   method?: ParseMethod;
+  /** Table syntax: `otsl` (server default) or `html`. See {@link TableFormat}. */
+  table_format?: TableFormat;
   /** Assign to a collection on upload. */
   collection_id?: string;
   /** When false, return the queued document resource immediately. */
   wait?: boolean;
+}
+
+export interface MarkdownOptions {
+  /**
+   * `otsl` returns tables exactly as parsed; `html` converts every OTSL block to
+   * a `<table>`. Omitted by default, so the server default (`otsl`) applies. A
+   * document parsed with `table_format: 'html'` is always served as HTML.
+   */
+  table_format?: TableFormat;
+  /**
+   * Pass `false` to leave the generated `<description>` out of figure blocks
+   * (the server default keeps them). Omitted unless set, so servers that
+   * predate the parameter are unaffected.
+   */
+  figure_descriptions?: boolean;
 }
 
 export interface DocumentUpdateOptions {
@@ -273,8 +332,10 @@ export interface FieldDefinition {
 
 export type ExtractionModel = 'fast' | 'pro';
 export type ExtractionStatus = 'pending' | 'processing' | 'done' | 'error';
-export type ExtractionTier = 'S' | 'M' | 'L';
+/** `C` is an auto-chunked extraction of a large document that has no index. */
+export type ExtractionTier = 'S' | 'M' | 'L' | 'C';
 export type ExportFormat = 'csv' | 'xlsx';
+export type ExtractionCompleteness = 'standard' | 'exhaustive';
 
 export interface ExtractionCreateOptions {
   /** The parsed document to extract from. */
@@ -289,6 +350,13 @@ export interface ExtractionCreateOptions {
   model?: ExtractionModel;
   /** Compute and return evidence payloads on the run. */
   include_evidence?: boolean;
+  /**
+   * `standard` (server default) or `exhaustive`. Exhaustive reads every part of
+   * the document for array fields, merges and de-duplicates the items, then
+   * checks for missed ones. Slower, and bills more tokens; scalar fields are
+   * unaffected. Sent only when set.
+   */
+  completeness?: ExtractionCompleteness;
 }
 
 export interface ExtractionGetOptions {
@@ -312,6 +380,7 @@ export interface ExtractionRun {
   status: ExtractionStatus;
   tier: ExtractionTier | null;
   model: string;
+  completeness: ExtractionCompleteness;
   result: Record<string, unknown> | null;
   evidence: Record<string, unknown> | null;
   processing_time_ms: number | null;
@@ -407,6 +476,11 @@ export interface AccountSettings {
 // Billing
 // ---------------------------------------------------------------------------
 
+/**
+ * One credit-ledger entry: a charge, refund, grant or top-up. Amounts are in
+ * micro-euros (1 credit = 5,000). A parse charge carries the document id in
+ * `source_id` and the file name and billed pages in `description` and `metadata`.
+ */
 export interface BillingTransaction {
   id: string;
   transaction_type: string;
@@ -456,4 +530,31 @@ export interface BillingSummaryResponse {
   spend_by_service: BillingServiceSpend[];
   daily_spend: BillingDailySpend[];
   totals: Record<string, number>;
+}
+
+export interface BillingTransactionListOptions {
+  /** Only transactions at or after this time (a `Date` or an ISO 8601 string). */
+  since?: Date | string;
+  /** Only transactions before this time. */
+  until?: Date | string;
+  /** Cursor: the `next_before` of the previous page. */
+  before?: Date | string;
+  /** Page size, 1 to 500. The server default is 100. */
+  limit?: number;
+}
+
+export interface BillingTransactionIterateOptions {
+  /** Only transactions at or after this time (a `Date` or an ISO 8601 string). */
+  since?: Date | string;
+  /** Only transactions before this time. */
+  until?: Date | string;
+  /** Transactions fetched per request, 1 to 500. Defaults to 500. */
+  page_size?: number;
+}
+
+/** A page of the credit ledger, newest first. */
+export interface BillingTransactionPage {
+  transactions: BillingTransaction[];
+  /** Pass as `before` to fetch the next (older) page; `null` on the last page. */
+  next_before: string | null;
 }

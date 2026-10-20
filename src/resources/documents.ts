@@ -1,8 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import { basename } from 'node:path';
-import { HttpClient, InfratexError } from '../http.js';
+import { BinaryResponse, HttpClient, InfratexError } from '../http.js';
 import type {
   Document,
+  DocumentFiguresResponse,
   DocumentIndex,
   DocumentListOptions,
   DocumentListResponse,
@@ -11,9 +12,13 @@ import type {
   IndexCreateOptions,
   IndexMethod,
   IndexResponse,
+  MarkdownOptions,
   UploadOptions,
   UploadResponse,
 } from '../types.js';
+
+const DOCX_CONTENT_TYPE =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export class Documents {
   private readonly pollIntervalMs = 1000;
@@ -21,17 +26,21 @@ export class Documents {
   constructor(private readonly http: HttpClient) {}
 
   /**
-   * Upload and parse a PDF document.
+   * Upload and parse a PDF or Word (`.docx`) document.
    *
    * Accepts either a file path (string) or a Buffer.
    * When passing a Buffer, provide `options.filename`.
    *
+   * A `.docx` is read from the file itself and billed at the `standard` price
+   * whatever `method` is sent; the document reports `standard` as its method.
+   *
    * @example
    * ```ts
-  * const doc = await client.documents.upload('/path/to/report.pdf');
-  * const doc = await client.documents.upload(buffer, { filename: 'report.pdf' });
-  * ```
-  */
+   * const doc = await client.documents.upload('/path/to/report.pdf');
+   * const doc = await client.documents.upload(buffer, { filename: 'report.pdf' });
+   * const doc = await client.documents.upload('/path/to/contract.docx');
+   * ```
+   */
   async upload(
     file: string | Buffer,
     options: UploadOptions & { wait: false },
@@ -44,11 +53,14 @@ export class Documents {
     file: string | Buffer,
     options?: UploadOptions,
   ): Promise<Document | UploadResponse> {
-    const { bytes, filename } = await this.loadUploadInput(file, options?.filename, 'upload.pdf');
+    const fallbackFilename =
+      typeof file !== 'string' && isZipArchive(file) ? 'upload.docx' : 'upload.pdf';
+    const { bytes, filename } = await this.loadUploadInput(file, options?.filename, fallbackFilename);
     const form = new FormData();
-    form.append('file', new Blob([bytes], { type: 'application/pdf' }), filename);
+    form.append('file', new Blob([bytes], { type: documentContentType(filename) }), filename);
 
     if (options?.method) form.append('method', options.method);
+    if (options?.table_format) form.append('table_format', options.table_format);
     if (options?.collection_id) form.append('collection_id', options.collection_id);
 
     const created = await this.http.postMultipart<Document>('/api/v1/documents', form);
@@ -83,6 +95,9 @@ export class Documents {
     }
 
     form.append('method', method);
+    if (options?.table_format) {
+      form.append('table_format', options.table_format);
+    }
     if (options?.collection_id) {
       form.append('collection_id', options.collection_id);
     }
@@ -128,9 +143,56 @@ export class Documents {
 
   /**
    * Download the extracted markdown for a document.
+   *
+   * @example
+   * ```ts
+   * const markdown = await client.documents.markdown('doc-id');
+   * const withHtmlTables = await client.documents.markdown('doc-id', { table_format: 'html' });
+   * ```
    */
-  async markdown(id: string): Promise<string> {
-    return this.http.get<string>(`/api/v1/documents/${id}/markdown`);
+  async markdown(id: string, options?: MarkdownOptions): Promise<string> {
+    const figureDescriptions = options?.figure_descriptions;
+    return this.http.get<string>(`/api/v1/documents/${id}/markdown`, {
+      table_format: options?.table_format,
+      figure_descriptions: figureDescriptions === undefined ? undefined : String(figureDescriptions),
+    });
+  }
+
+  /**
+   * List the figures cropped from a parsed PDF: page, type, detection score,
+   * bounding box in PDF points and the `src` its figure block in the Markdown
+   * carries. Empty when the document has no figures or they could not be
+   * matched reliably.
+   */
+  async listFigures(id: string): Promise<DocumentFiguresResponse> {
+    return this.http.get<DocumentFiguresResponse>(`/api/v1/documents/${id}/figures`);
+  }
+
+  /**
+   * Download one cropped figure as PNG bytes.
+   *
+   * `name` is a figure's `name` (`p12-1.png`); its `src` (`figures/p12-1.png`)
+   * is accepted too.
+   *
+   * @example
+   * ```ts
+   * const { figures } = await client.documents.listFigures('doc-id');
+   * for (const figure of figures) {
+   *   const png = await client.documents.downloadFigure('doc-id', figure.name);
+   *   await png.save(figure.name);
+   * }
+   * ```
+   */
+  async downloadFigure(id: string, name: string): Promise<BinaryResponse> {
+    const filename = name.slice(name.lastIndexOf('/') + 1);
+    const response = await this.http.getBinary(
+      `/api/v1/documents/${id}/figures/${encodeURIComponent(filename)}`,
+    );
+    return new BinaryResponse(
+      response.content,
+      response.filename ?? filename,
+      response.contentType,
+    );
   }
 
   /**
@@ -313,4 +375,17 @@ export class Documents {
     if (lower.endsWith('.webp')) return 'image/webp';
     return 'application/octet-stream';
   }
+}
+
+function documentContentType(filename: string): string {
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.pdf')) return 'application/pdf';
+  if (lower.endsWith('.docx')) return DOCX_CONTENT_TYPE;
+  // The API identifies the document from its bytes; a neutral type is accepted.
+  return 'application/octet-stream';
+}
+
+/** A .docx is a ZIP package; a PDF starts with `%PDF`. */
+function isZipArchive(bytes: Uint8Array): boolean {
+  return bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }
