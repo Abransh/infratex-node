@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0
+## 1.0.0
 
 ### Added
 
@@ -33,4 +33,4 @@
 - `ExtractionTier` includes `'C'` (auto-chunked runs on large un-indexed documents), which
   the API already returns.
 - `package-lock.json` carried version 0.8.1 while `package.json` was at 0.9.0; both now
-  read 0.10.0.
+  read 1.0.0.
