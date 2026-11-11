@@ -1,10 +1,15 @@
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
-import { BinaryResponse, HttpClient, InfratexError } from '../http.js';
+import { BinaryResponse, HttpClient, IDEMPOTENCY_HEADER, InfratexError } from '../http.js';
+import {
+  documentContentType,
+  fallbackDocumentFilename,
+  imageContentType,
+  loadUploadInput,
+} from '../files.js';
 import type {
   Document,
   DocumentFiguresResponse,
   DocumentIndex,
+  DocumentLayout,
   DocumentListOptions,
   DocumentListResponse,
   DocumentUpdateOptions,
@@ -16,9 +21,6 @@ import type {
   UploadOptions,
   UploadResponse,
 } from '../types.js';
-
-const DOCX_CONTENT_TYPE =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export class Documents {
   private readonly pollIntervalMs = 1000;
@@ -53,17 +55,22 @@ export class Documents {
     file: string | Buffer,
     options?: UploadOptions,
   ): Promise<Document | UploadResponse> {
-    const fallbackFilename =
-      typeof file !== 'string' && isZipArchive(file) ? 'upload.docx' : 'upload.pdf';
-    const { bytes, filename } = await this.loadUploadInput(file, options?.filename, fallbackFilename);
+    const { bytes, filename } = await loadUploadInput(
+      file,
+      options?.filename,
+      fallbackDocumentFilename(file),
+    );
     const form = new FormData();
     form.append('file', new Blob([bytes], { type: documentContentType(filename) }), filename);
 
     if (options?.method) form.append('method', options.method);
     if (options?.table_format) form.append('table_format', options.table_format);
+    if (options?.options !== undefined) form.append('options', JSON.stringify(options.options));
     if (options?.collection_id) form.append('collection_id', options.collection_id);
 
-    const created = await this.http.postMultipart<Document>('/api/v1/documents', form);
+    const created = await this.http.postMultipart<Document>('/api/v1/documents', form, {
+      [IDEMPOTENCY_HEADER]: options?.idempotency_key,
+    });
     if (options?.wait === false) {
       return this.normalizeDocument(created);
     }
@@ -90,19 +97,24 @@ export class Documents {
 
     const form = new FormData();
     for (const file of files) {
-      const { bytes, filename } = await this.loadUploadInput(file, undefined, 'image');
-      form.append('files', new Blob([bytes], { type: this.guessImageMimeType(filename) }), filename);
+      const { bytes, filename } = await loadUploadInput(file, undefined, 'image');
+      form.append('files', new Blob([bytes], { type: imageContentType(filename) }), filename);
     }
 
     form.append('method', method);
     if (options?.table_format) {
       form.append('table_format', options.table_format);
     }
+    if (options?.options !== undefined) {
+      form.append('options', JSON.stringify(options.options));
+    }
     if (options?.collection_id) {
       form.append('collection_id', options.collection_id);
     }
 
-    const created = await this.http.postMultipart<Document>('/api/v1/documents/images', form);
+    const created = await this.http.postMultipart<Document>('/api/v1/documents/images', form, {
+      [IDEMPOTENCY_HEADER]: options?.idempotency_key,
+    });
     if (options?.wait === false) {
       return this.normalizeDocument(created);
     }
@@ -156,6 +168,16 @@ export class Documents {
       table_format: options?.table_format,
       figure_descriptions: figureDescriptions === undefined ? undefined : String(figureDescriptions),
     });
+  }
+
+  /**
+   * Bounding boxes of a document parsed with `infratex-gamma`: per page, its
+   * regions with label, `bbox` in pixels of a page image of the page's
+   * `width` x `height`, and recognised text. Other methods answer 404
+   * `layout_not_available`; 409 while parsing.
+   */
+  async layout(id: string): Promise<DocumentLayout> {
+    return this.http.get<DocumentLayout>(`/api/v1/documents/${id}/layout`);
   }
 
   /**
@@ -244,9 +266,11 @@ export class Documents {
    * Create or rebuild an index on a parsed document.
    */
   async index(id: string, options: IndexCreateOptions): Promise<IndexResponse> {
-    const created = this.normalizeIndex(await this.http.post<IndexResponse>(`/api/v1/documents/${id}/indexes`, {
-      method: options.method,
-    }));
+    const created = this.normalizeIndex(await this.http.post<IndexResponse>(
+      `/api/v1/documents/${id}/indexes`,
+      { method: options.method },
+      { [IDEMPOTENCY_HEADER]: options.idempotency_key },
+    ));
     if (options.wait === false) {
       return created;
     }
@@ -345,47 +369,4 @@ export class Documents {
       indexes: document.indexes?.map((index) => this.normalizeIndex(index)),
     };
   }
-
-  private async loadUploadInput(
-    file: string | Buffer,
-    explicitFilename: string | undefined,
-    fallbackFilename: string,
-  ): Promise<{ bytes: Uint8Array<ArrayBuffer>; filename: string }> {
-    let bytes: Uint8Array<ArrayBuffer>;
-    let filename: string;
-
-    if (typeof file === 'string') {
-      const data = await readFile(file);
-      filename = explicitFilename ?? basename(file);
-      bytes = new Uint8Array(data.byteLength);
-      bytes.set(data);
-      return { bytes, filename };
-    }
-
-    filename = explicitFilename ?? fallbackFilename;
-    bytes = new Uint8Array(file.byteLength);
-    bytes.set(file);
-    return { bytes, filename };
-  }
-
-  private guessImageMimeType(filename: string): string {
-    const lower = filename.toLowerCase();
-    if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-    if (lower.endsWith('.webp')) return 'image/webp';
-    return 'application/octet-stream';
-  }
-}
-
-function documentContentType(filename: string): string {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.docx')) return DOCX_CONTENT_TYPE;
-  // The API identifies the document from its bytes; a neutral type is accepted.
-  return 'application/octet-stream';
-}
-
-/** A .docx is a ZIP package; a PDF starts with `%PDF`. */
-function isZipArchive(bytes: Uint8Array): boolean {
-  return bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
 }

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { BinaryResponse, InfratexError } from '../src/index.js';
-import { createClient, formOf, json, last, mockFetch } from './helpers.js';
+import { createClient, formOf, json, jsonOf, last, mockFetch } from './helpers.js';
 
 const QUEUED = { id: 'doc-1', filename: 'report.pdf', status: 'pending', method: 'standard' };
 const queued = () => json(QUEUED, 202);
@@ -192,5 +192,102 @@ test('downloadFigure throws InfratexError for a missing figure', async (t) => {
       error.status === 404 &&
       error.code === 'not_found' &&
       error.message === 'Figure not found',
+  );
+});
+
+test('upload sends gamma options as JSON only when given', async (t) => {
+  const requests = mockFetch(t, queued);
+  const client = createClient();
+
+  await client.documents.upload(Buffer.from('%PDF'), {
+    filename: 'a.pdf',
+    method: 'infratex-gamma',
+    options: { merge_tables: false, ignore_labels: ['header', 'footer'] },
+    wait: false,
+  });
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', wait: false });
+
+  const [withOptions, withoutOptions] = requests.map(formOf);
+  assert.deepEqual(JSON.parse(String(withOptions?.get('options'))), {
+    merge_tables: false,
+    ignore_labels: ['header', 'footer'],
+  });
+  assert.equal(withoutOptions?.has('options'), false);
+});
+
+test('uploadImages sends options', async (t) => {
+  const requests = mockFetch(t, queued);
+  const page = await tempFile('page-1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  await createClient().documents.uploadImages([page], {
+    method: 'infratex-gamma',
+    options: { unwarp: true },
+    wait: false,
+  });
+
+  assert.deepEqual(JSON.parse(String(formOf(last(requests)).get('options'))), { unwarp: true });
+});
+
+test('create calls send the Idempotency-Key header', async (t) => {
+  const index = {
+    id: 'idx-1',
+    document_id: 'doc-1',
+    method: 'hybrid',
+    status: 'pending',
+    node_count: null,
+    chunk_count: null,
+    has_ast: false,
+    has_description: false,
+    processing_time_ms: null,
+    created_at: '2026-11-10T10:00:00Z',
+    updated_at: '2026-11-10T10:00:00Z',
+  };
+  const requests = mockFetch(t, (request) =>
+    request.url.pathname.endsWith('/indexes') ? json(index, 202) : queued(),
+  );
+  const client = createClient();
+  const page = await tempFile('page-1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', idempotency_key: 'upload-key', wait: false });
+  await client.documents.uploadImages([page], { idempotency_key: 'images-key', wait: false });
+  await client.documents.index('doc-1', { method: 'hybrid', idempotency_key: 'index-key', wait: false });
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', wait: false });
+
+  assert.deepEqual(
+    requests.map((request) => request.headers.get('idempotency-key')),
+    ['upload-key', 'images-key', 'index-key', null],
+  );
+  assert.deepEqual(jsonOf(requests[2]!), { method: 'hybrid' });
+});
+
+const LAYOUT = {
+  document_id: 'doc-1',
+  pages: [
+    {
+      page: 1,
+      width: 1240,
+      height: 1754,
+      regions: [{ id: 0, label: 'title', bbox: [100, 80, 900, 140], content: 'Annual report', page: 1 }],
+    },
+  ],
+};
+
+test('layout returns the pages and regions', async (t) => {
+  const requests = mockFetch(t, () => json(LAYOUT));
+
+  const layout = await createClient().documents.layout('doc-1');
+
+  assert.equal(last(requests).url.pathname, '/api/v1/documents/doc-1/layout');
+  assert.deepEqual(layout, LAYOUT);
+});
+
+test('layout throws layout_not_available for other methods', async (t) => {
+  mockFetch(t, () =>
+    json({ error: { code: 'layout_not_available', message: 'This document has no layout.', request_id: 'r' } }, 404),
+  );
+
+  await assert.rejects(
+    createClient().documents.layout('doc-1'),
+    (error: unknown) => error instanceof InfratexError && error.code === 'layout_not_available',
   );
 });
