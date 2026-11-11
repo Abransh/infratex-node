@@ -3,8 +3,14 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { BinaryResponse, InfratexError } from '../src/index.js';
-import { createClient, formOf, json, last, mockFetch } from './helpers.js';
+import {
+  BinaryResponse,
+  EncryptedPdfError,
+  Infratex,
+  InfratexError,
+  type DocumentProgress,
+} from '../src/index.js';
+import { createClient, formOf, json, jsonOf, last, mockFetch } from './helpers.js';
 
 const QUEUED = { id: 'doc-1', filename: 'report.pdf', status: 'pending', method: 'standard' };
 const queued = () => json(QUEUED, 202);
@@ -192,5 +198,242 @@ test('downloadFigure throws InfratexError for a missing figure', async (t) => {
       error.status === 404 &&
       error.code === 'not_found' &&
       error.message === 'Figure not found',
+  );
+});
+
+test('upload sends gamma options as JSON only when given', async (t) => {
+  const requests = mockFetch(t, queued);
+  const client = createClient();
+
+  await client.documents.upload(Buffer.from('%PDF'), {
+    filename: 'a.pdf',
+    method: 'infratex-gamma',
+    options: { merge_tables: false, ignore_labels: ['header', 'footer'] },
+    wait: false,
+  });
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', wait: false });
+
+  const [withOptions, withoutOptions] = requests.map(formOf);
+  assert.deepEqual(JSON.parse(String(withOptions?.get('options'))), {
+    merge_tables: false,
+    ignore_labels: ['header', 'footer'],
+  });
+  assert.equal(withoutOptions?.has('options'), false);
+});
+
+test('uploadImages sends options', async (t) => {
+  const requests = mockFetch(t, queued);
+  const page = await tempFile('page-1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  await createClient().documents.uploadImages([page], {
+    method: 'infratex-gamma',
+    options: { unwarp: true },
+    wait: false,
+  });
+
+  assert.deepEqual(JSON.parse(String(formOf(last(requests)).get('options'))), { unwarp: true });
+});
+
+test('create calls send the Idempotency-Key header', async (t) => {
+  const index = {
+    id: 'idx-1',
+    document_id: 'doc-1',
+    method: 'hybrid',
+    status: 'pending',
+    node_count: null,
+    chunk_count: null,
+    has_ast: false,
+    has_description: false,
+    processing_time_ms: null,
+    created_at: '2026-11-10T10:00:00Z',
+    updated_at: '2026-11-10T10:00:00Z',
+  };
+  const requests = mockFetch(t, (request) =>
+    request.url.pathname.endsWith('/indexes') ? json(index, 202) : queued(),
+  );
+  const client = createClient();
+  const page = await tempFile('page-1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', idempotency_key: 'upload-key', wait: false });
+  await client.documents.uploadImages([page], { idempotency_key: 'images-key', wait: false });
+  await client.documents.index('doc-1', { method: 'hybrid', idempotency_key: 'index-key', wait: false });
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', wait: false });
+
+  assert.deepEqual(
+    requests.map((request) => request.headers.get('idempotency-key')),
+    ['upload-key', 'images-key', 'index-key', null],
+  );
+  assert.deepEqual(jsonOf(requests[2]!), { method: 'hybrid' });
+});
+
+const LAYOUT = {
+  document_id: 'doc-1',
+  pages: [
+    {
+      page: 1,
+      width: 1240,
+      height: 1754,
+      regions: [{ id: 0, label: 'title', bbox: [100, 80, 900, 140], content: 'Annual report', page: 1 }],
+    },
+  ],
+};
+
+test('layout returns the pages and regions', async (t) => {
+  const requests = mockFetch(t, () => json(LAYOUT));
+
+  const layout = await createClient().documents.layout('doc-1');
+
+  assert.equal(last(requests).url.pathname, '/api/v1/documents/doc-1/layout');
+  assert.deepEqual(layout, LAYOUT);
+});
+
+test('layout throws layout_not_available for other methods', async (t) => {
+  mockFetch(t, () =>
+    json({ error: { code: 'layout_not_available', message: 'This document has no layout.', request_id: 'r' } }, 404),
+  );
+
+  await assert.rejects(
+    createClient().documents.layout('doc-1'),
+    (error: unknown) => error instanceof InfratexError && error.code === 'layout_not_available',
+  );
+});
+
+function progress(stage: DocumentProgress['stage'], done: number, attempt = 1, updated = '2026-11-10T09:41:07Z'): DocumentProgress {
+  return { stage, pages_done: done, pages_total: 3, attempt, max_attempts: 3, updated_at: updated };
+}
+
+function documentState(status: string, documentProgress: DocumentProgress | null, error: string | null = null) {
+  return {
+    id: 'doc-1',
+    filename: 'report.pdf',
+    upload_time: '2026-11-10T09:40:00Z',
+    status,
+    method: 'standard',
+    pipeline: null,
+    page_count: 3,
+    processing_time_ms: 900,
+    error_message: error,
+    markdown_size_bytes: null,
+    chunk_count: null,
+    index_method: null,
+    collection_id: null,
+    extraction_pages: null,
+    indexes: [],
+    progress: documentProgress,
+  };
+}
+
+function sequence(...states: ReturnType<typeof documentState>[]) {
+  const queue = [...states];
+  return (request: { url: URL }) => {
+    if (request.url.pathname.endsWith('/markdown')) return markdownResponse();
+    const next = queue.shift();
+    if (next === undefined) throw new Error('no more document states');
+    return json(next);
+  };
+}
+
+function withoutPollDelay(client: Infratex): Infratex {
+  (client.documents as unknown as { pollIntervalMs: number }).pollIntervalMs = 0;
+  return client;
+}
+
+test('get returns progress while processing', async (t) => {
+  mockFetch(t, () => json(documentState('processing', progress('parsing', 2))));
+
+  const document = await createClient().documents.get('doc-1');
+
+  assert.deepEqual(document.progress, progress('parsing', 2));
+});
+
+test('waitUntilParsed reports each new progress', async (t) => {
+  mockFetch(
+    t,
+    sequence(
+      documentState('pending', progress('queued', 0, 0)),
+      documentState('processing', null),
+      documentState('processing', progress('parsing', 1)),
+      documentState('processing', progress('parsing', 1)),
+      documentState('processing', progress('parsing', 1, 1, '2026-11-10T09:41:37Z')),
+      documentState('processing', progress('finishing', 3)),
+      documentState('parsed', null),
+    ),
+  );
+  const seen: DocumentProgress[] = [];
+
+  const uploaded = await withoutPollDelay(createClient()).documents.waitUntilParsed('doc-1', {
+    onProgress: (p) => seen.push(p),
+  });
+
+  assert.deepEqual(seen, [
+    progress('queued', 0, 0),
+    progress('parsing', 1),
+    progress('parsing', 1, 1, '2026-11-10T09:41:37Z'),
+    progress('finishing', 3),
+  ]);
+  assert.equal(uploaded.status, 'parsed');
+  assert.equal(uploaded.markdown, '<!-- page:1 -->\n# Title');
+});
+
+test('waitUntilParsed works without a callback', async (t) => {
+  mockFetch(t, sequence(documentState('processing', progress('parsing', 1)), documentState('parsed', null)));
+
+  const uploaded = await withoutPollDelay(createClient()).documents.waitUntilParsed('doc-1');
+
+  assert.equal(uploaded.status, 'parsed');
+});
+
+test('waitUntilParsed throws the document error_message', async (t) => {
+  const message = 'The PDF is password-protected, so its pages could not be read. No credits were charged.';
+  mockFetch(
+    t,
+    sequence(documentState('processing', progress('parsing', 0)), documentState('error', null, message)),
+  );
+
+  await assert.rejects(
+    withoutPollDelay(createClient()).documents.waitUntilParsed('doc-1'),
+    (error: unknown) =>
+      error instanceof InfratexError &&
+      error.message === message &&
+      error.code === 'document_processing_failed' &&
+      (error.details as { document_id?: string } | undefined)?.document_id === 'doc-1',
+  );
+});
+
+test('waitUntilParsed timeout carries the last progress', async (t) => {
+  mockFetch(t, () => json(documentState('processing', progress('parsing', 2))));
+  const client = withoutPollDelay(new Infratex({ apiKey: 'infratex_sk_test', baseUrl: 'https://api.test', timeout: 0 }));
+
+  await assert.rejects(client.documents.waitUntilParsed('doc-1'), (error: unknown) => {
+    assert.ok(error instanceof InfratexError);
+    assert.equal(error.code, 'upload_timeout');
+    assert.deepEqual(error.details, { document_id: 'doc-1', progress: progress('parsing', 2) });
+    return true;
+  });
+});
+
+test('upload of a password-protected PDF throws EncryptedPdfError', async (t) => {
+  mockFetch(t, () =>
+    json(
+      {
+        error: {
+          code: 'encrypted_pdf',
+          message: 'The PDF is password-protected. Remove the password and upload it again.',
+          request_id: 'req-3',
+        },
+      },
+      400,
+    ),
+  );
+
+  await assert.rejects(
+    createClient().documents.upload(Buffer.from('%PDF-1.7'), { filename: 'locked.pdf', wait: false }),
+    (error: unknown) =>
+      error instanceof EncryptedPdfError &&
+      error instanceof InfratexError &&
+      error.name === 'EncryptedPdfError' &&
+      error.status === 400 &&
+      error.code === 'encrypted_pdf' &&
+      error.requestId === 'req-3',
   );
 });

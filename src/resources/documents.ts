@@ -1,12 +1,18 @@
-import { readFile } from 'node:fs/promises';
-import { basename } from 'node:path';
-import { BinaryResponse, HttpClient, InfratexError } from '../http.js';
+import { BinaryResponse, HttpClient, IDEMPOTENCY_HEADER, InfratexError } from '../http.js';
+import {
+  documentContentType,
+  fallbackDocumentFilename,
+  imageContentType,
+  loadUploadInput,
+} from '../files.js';
 import type {
   Document,
   DocumentFiguresResponse,
   DocumentIndex,
+  DocumentLayout,
   DocumentListOptions,
   DocumentListResponse,
+  DocumentProgress,
   DocumentUpdateOptions,
   ImageUploadOptions,
   IndexCreateOptions,
@@ -15,10 +21,8 @@ import type {
   MarkdownOptions,
   UploadOptions,
   UploadResponse,
+  WaitUntilParsedOptions,
 } from '../types.js';
-
-const DOCX_CONTENT_TYPE =
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 export class Documents {
   private readonly pollIntervalMs = 1000;
@@ -53,17 +57,22 @@ export class Documents {
     file: string | Buffer,
     options?: UploadOptions,
   ): Promise<Document | UploadResponse> {
-    const fallbackFilename =
-      typeof file !== 'string' && isZipArchive(file) ? 'upload.docx' : 'upload.pdf';
-    const { bytes, filename } = await this.loadUploadInput(file, options?.filename, fallbackFilename);
+    const { bytes, filename } = await loadUploadInput(
+      file,
+      options?.filename,
+      fallbackDocumentFilename(file),
+    );
     const form = new FormData();
     form.append('file', new Blob([bytes], { type: documentContentType(filename) }), filename);
 
     if (options?.method) form.append('method', options.method);
     if (options?.table_format) form.append('table_format', options.table_format);
+    if (options?.options !== undefined) form.append('options', JSON.stringify(options.options));
     if (options?.collection_id) form.append('collection_id', options.collection_id);
 
-    const created = await this.http.postMultipart<Document>('/api/v1/documents', form);
+    const created = await this.http.postMultipart<Document>('/api/v1/documents', form, {
+      [IDEMPOTENCY_HEADER]: options?.idempotency_key,
+    });
     if (options?.wait === false) {
       return this.normalizeDocument(created);
     }
@@ -90,19 +99,24 @@ export class Documents {
 
     const form = new FormData();
     for (const file of files) {
-      const { bytes, filename } = await this.loadUploadInput(file, undefined, 'image');
-      form.append('files', new Blob([bytes], { type: this.guessImageMimeType(filename) }), filename);
+      const { bytes, filename } = await loadUploadInput(file, undefined, 'image');
+      form.append('files', new Blob([bytes], { type: imageContentType(filename) }), filename);
     }
 
     form.append('method', method);
     if (options?.table_format) {
       form.append('table_format', options.table_format);
     }
+    if (options?.options !== undefined) {
+      form.append('options', JSON.stringify(options.options));
+    }
     if (options?.collection_id) {
       form.append('collection_id', options.collection_id);
     }
 
-    const created = await this.http.postMultipart<Document>('/api/v1/documents/images', form);
+    const created = await this.http.postMultipart<Document>('/api/v1/documents/images', form, {
+      [IDEMPOTENCY_HEADER]: options?.idempotency_key,
+    });
     if (options?.wait === false) {
       return this.normalizeDocument(created);
     }
@@ -156,6 +170,16 @@ export class Documents {
       table_format: options?.table_format,
       figure_descriptions: figureDescriptions === undefined ? undefined : String(figureDescriptions),
     });
+  }
+
+  /**
+   * Bounding boxes of a document parsed with `infratex-gamma`: per page, its
+   * regions with label, `bbox` in pixels of a page image of the page's
+   * `width` x `height`, and recognised text. Other methods answer 404
+   * `layout_not_available`; 409 while parsing.
+   */
+  async layout(id: string): Promise<DocumentLayout> {
+    return this.http.get<DocumentLayout>(`/api/v1/documents/${id}/layout`);
   }
 
   /**
@@ -225,9 +249,21 @@ export class Documents {
 
   /**
    * Block until the document finishes parsing and return its markdown payload.
+   *
+   * Throws an `InfratexError` with the document's `error_message` (code
+   * `document_processing_failed`) when the parse fails, and code
+   * `upload_timeout` when the client `timeout` runs out first; both carry the
+   * document id, and the timeout the last progress, in `details`.
+   *
+   * @example
+   * ```ts
+   * await client.documents.waitUntilParsed(doc.id, {
+   *   onProgress: (p) => console.log(p.stage, `${p.pages_done}/${p.pages_total ?? '?'}`),
+   * });
+   * ```
    */
-  async waitUntilParsed(id: string): Promise<UploadResponse> {
-    return this.waitForUploadedDocument(id);
+  async waitUntilParsed(id: string, options?: WaitUntilParsedOptions): Promise<UploadResponse> {
+    return this.waitForUploadedDocument(id, options?.onProgress);
   }
 
   /**
@@ -244,9 +280,11 @@ export class Documents {
    * Create or rebuild an index on a parsed document.
    */
   async index(id: string, options: IndexCreateOptions): Promise<IndexResponse> {
-    const created = this.normalizeIndex(await this.http.post<IndexResponse>(`/api/v1/documents/${id}/indexes`, {
-      method: options.method,
-    }));
+    const created = this.normalizeIndex(await this.http.post<IndexResponse>(
+      `/api/v1/documents/${id}/indexes`,
+      { method: options.method },
+      { [IDEMPOTENCY_HEADER]: options.idempotency_key },
+    ));
     if (options.wait === false) {
       return created;
     }
@@ -269,11 +307,20 @@ export class Documents {
     return this.normalizeIndex(await this.http.get<IndexResponse>(`/api/v1/documents/${id}/indexes/${method}`));
   }
 
-  private async waitForUploadedDocument(id: string): Promise<UploadResponse> {
+  private async waitForUploadedDocument(
+    id: string,
+    onProgress?: (progress: DocumentProgress) => void,
+  ): Promise<UploadResponse> {
     const deadline = Date.now() + this.http.timeoutMs;
+    let lastProgress: DocumentProgress | null = null;
 
     while (true) {
       const document = await this.get(id);
+      const progress = document.progress ?? null;
+      if (progress !== null && !sameProgress(progress, lastProgress)) {
+        lastProgress = progress;
+        onProgress?.(progress);
+      }
       if (document.status === 'done' || document.status === 'parsed' || document.status === 'indexed') {
         return {
           id: document.id,
@@ -293,11 +340,15 @@ export class Documents {
           document.error_message ?? 'Document processing failed',
           409,
           'document_processing_failed',
+          { document_id: id },
         );
       }
 
       if (Date.now() >= deadline) {
-        throw new InfratexError('Document processing timed out', 504, 'upload_timeout');
+        throw new InfratexError('Document processing timed out', 504, 'upload_timeout', {
+          document_id: id,
+          progress: lastProgress,
+        });
       }
 
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
@@ -345,47 +396,17 @@ export class Documents {
       indexes: document.indexes?.map((index) => this.normalizeIndex(index)),
     };
   }
-
-  private async loadUploadInput(
-    file: string | Buffer,
-    explicitFilename: string | undefined,
-    fallbackFilename: string,
-  ): Promise<{ bytes: Uint8Array<ArrayBuffer>; filename: string }> {
-    let bytes: Uint8Array<ArrayBuffer>;
-    let filename: string;
-
-    if (typeof file === 'string') {
-      const data = await readFile(file);
-      filename = explicitFilename ?? basename(file);
-      bytes = new Uint8Array(data.byteLength);
-      bytes.set(data);
-      return { bytes, filename };
-    }
-
-    filename = explicitFilename ?? fallbackFilename;
-    bytes = new Uint8Array(file.byteLength);
-    bytes.set(file);
-    return { bytes, filename };
-  }
-
-  private guessImageMimeType(filename: string): string {
-    const lower = filename.toLowerCase();
-    if (lower.endsWith('.png')) return 'image/png';
-    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-    if (lower.endsWith('.webp')) return 'image/webp';
-    return 'application/octet-stream';
-  }
 }
 
-function documentContentType(filename: string): string {
-  const lower = filename.toLowerCase();
-  if (lower.endsWith('.pdf')) return 'application/pdf';
-  if (lower.endsWith('.docx')) return DOCX_CONTENT_TYPE;
-  // The API identifies the document from its bytes; a neutral type is accepted.
-  return 'application/octet-stream';
-}
+const PROGRESS_FIELDS = [
+  'stage',
+  'pages_done',
+  'pages_total',
+  'attempt',
+  'max_attempts',
+  'updated_at',
+] as const satisfies readonly (keyof DocumentProgress)[];
 
-/** A .docx is a ZIP package; a PDF starts with `%PDF`. */
-function isZipArchive(bytes: Uint8Array): boolean {
-  return bytes[0] === 0x50 && bytes[1] === 0x4b && bytes[2] === 0x03 && bytes[3] === 0x04;
+function sameProgress(a: DocumentProgress, b: DocumentProgress | null): boolean {
+  return b !== null && PROGRESS_FIELDS.every((field) => a[field] === b[field]);
 }

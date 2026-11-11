@@ -1,5 +1,4 @@
 import { writeFile } from 'node:fs/promises';
-import type { InfratexErrorBody } from './types.js';
 import { SDK_VERSION } from './version.js';
 
 // ---------------------------------------------------------------------------
@@ -28,32 +27,192 @@ export class BinaryResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Custom error class
+// Errors
 // ---------------------------------------------------------------------------
+
+export interface InfratexErrorOptions {
+  /** The request's id (`X-Request-ID`), for support conversations. */
+  requestId?: string;
+  /** The `Retry-After` header in seconds (429, 409 `idempotency_request_in_progress`). */
+  retryAfter?: number;
+}
 
 export class InfratexError extends Error {
   /** HTTP status code (e.g. 401, 404, 422, 500). */
   readonly status: number;
   /** Machine-readable error code from the API (e.g. `invalid_pdf`). */
   readonly code: string | undefined;
-  /** Additional details returned by the API. */
+  /**
+   * Additional details returned by the API. For a request validation error
+   * (`validation_error`) the API's list of field errors is under `details.errors`.
+   */
   readonly details: Record<string, unknown> | undefined;
+  /** The request's id (`X-Request-ID`), for support conversations. */
+  readonly requestId: string | undefined;
+  /** The `Retry-After` header in seconds, when the API sent one. */
+  readonly retryAfter: number | undefined;
 
   constructor(
     message: string,
     status: number,
     code?: string,
     details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
   ) {
     super(message);
     this.name = 'InfratexError';
     this.status = status;
     this.code = code;
     this.details = details;
+    this.requestId = options?.requestId;
+    this.retryAfter = options?.retryAfter;
 
-    // Maintain proper prototype chain for instanceof checks
-    Object.setPrototypeOf(this, InfratexError.prototype);
+    // Maintain the prototype chain (subclasses included) for instanceof checks
+    Object.setPrototypeOf(this, new.target.prototype);
   }
+}
+
+/**
+ * 422 `invalid_pipeline`: an extraction run's `pipeline` is not `legacy` or
+ * `v2`. Nothing was created or billed.
+ */
+export class InvalidPipelineError extends InfratexError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'InvalidPipelineError';
+  }
+
+  /** The values `pipeline` accepts. */
+  get allowedPipelines(): string[] {
+    return stringList(this.details?.allowed_pipelines);
+  }
+}
+
+/**
+ * 422 `pipeline_not_available`: the run asks for `pipeline: 'v2'` (beta),
+ * which is not open for this account yet. Omit `pipeline` or send `legacy`;
+ * `extractions.listPipelines()` shows what the account can choose. Nothing
+ * was created or billed.
+ */
+export class PipelineNotAvailableError extends InfratexError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'PipelineNotAvailableError';
+  }
+
+  get requestedPipeline(): string | undefined {
+    const value = this.details?.requested_pipeline;
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  get availablePipelines(): string[] {
+    return stringList(this.details?.available_pipelines);
+  }
+}
+
+/**
+ * 400 `encrypted_pdf`: the uploaded PDF needs a password to open, so its pages
+ * cannot be read. Remove the password and upload it again. Refused before any
+ * credits are held. A PDF with only an owner password is accepted.
+ */
+export class EncryptedPdfError extends InfratexError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'EncryptedPdfError';
+  }
+}
+
+type InfratexErrorClass = new (
+  message: string,
+  status: number,
+  code?: string,
+  details?: Record<string, unknown>,
+  options?: InfratexErrorOptions,
+) => InfratexError;
+
+const ERRORS_BY_CODE: Record<string, InfratexErrorClass> = {
+  invalid_pipeline: InvalidPipelineError,
+  pipeline_not_available: PipelineNotAvailableError,
+  encrypted_pdf: EncryptedPdfError,
+};
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  return typeof value === 'string' && value ? value : undefined;
+}
+
+/**
+ * The `InfratexError` (or typed subclass) for an error response.
+ *
+ * The API answers `{"error": {"code", "message", "details", "request_id"}}`;
+ * the older top-level `{"code", "message", "details"}` and `{"detail": ...}`
+ * shapes are read too.
+ */
+export async function errorFromResponse(res: Response): Promise<InfratexError> {
+  let body: unknown;
+  let text = '';
+  try {
+    text = await res.text();
+    body = text ? JSON.parse(text) : undefined;
+  } catch {
+    body = undefined;
+  }
+
+  let message: string | undefined = isRecord(body) ? undefined : nonEmptyString(text);
+  let code: string | undefined;
+  let rawDetails: unknown;
+  let requestId = res.headers.get('x-request-id') ?? undefined;
+
+  if (isRecord(body)) {
+    let payload: Record<string, unknown> = body;
+    if (isRecord(body.error)) payload = body.error;
+    else if (isRecord(body.detail)) payload = body.detail;
+    else if (typeof body.detail === 'string') payload = { message: body.detail };
+    message = nonEmptyString(payload.message);
+    code = nonEmptyString(payload.code);
+    rawDetails = payload.details;
+    requestId = nonEmptyString(payload.request_id) ?? requestId;
+  }
+
+  const details =
+    rawDetails === undefined || rawDetails === null
+      ? undefined
+      : isRecord(rawDetails)
+        ? rawDetails
+        : { errors: rawDetails };
+  const retryHeader = res.headers.get('retry-after');
+  const retryAfter = retryHeader !== null && retryHeader.trim() !== '' ? Number(retryHeader) : NaN;
+
+  const ErrorClass = (code && ERRORS_BY_CODE[code]) || InfratexError;
+  return new ErrorClass(message ?? `Request failed with status ${res.status}`, res.status, code, details, {
+    requestId,
+    retryAfter: Number.isFinite(retryAfter) ? retryAfter : undefined,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -108,26 +267,7 @@ export class HttpClient {
       return (await res.text()) as T;
     }
 
-    // Attempt to parse structured error body
-    let body: InfratexErrorBody = {};
-    try {
-      const contentType = res.headers.get('content-type') ?? '';
-      if (contentType.includes('application/json')) {
-        body = (await res.json()) as InfratexErrorBody;
-      } else {
-        const text = await res.text();
-        body = { message: text };
-      }
-    } catch {
-      // ignore parse failures
-    }
-
-    throw new InfratexError(
-      body.message ?? `Request failed with status ${res.status}`,
-      res.status,
-      body.code,
-      body.details,
-    );
+    throw await errorFromResponse(res);
   }
 
   // -- public methods -------------------------------------------------------
@@ -148,10 +288,10 @@ export class HttpClient {
     return this.handleResponse<T>(res);
   }
 
-  async post<T>(path: string, body?: unknown): Promise<T> {
+  async post<T>(path: string, body?: unknown, headers?: RequestHeaders): Promise<T> {
     const res = await fetch(this.url(path), {
       method: 'POST',
-      headers: this.headers({ 'Content-Type': 'application/json' }),
+      headers: this.headers({ 'Content-Type': 'application/json', ...definedHeaders(headers) }),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(this.timeout),
     });
@@ -209,11 +349,11 @@ export class HttpClient {
     );
   }
 
-  async postMultipart<T>(path: string, formData: FormData): Promise<T> {
+  async postMultipart<T>(path: string, formData: FormData, headers?: RequestHeaders): Promise<T> {
     // Do NOT set Content-Type — fetch will auto-set multipart/form-data with boundary
     const res = await fetch(this.url(path), {
       method: 'POST',
-      headers: this.headers(),
+      headers: this.headers(definedHeaders(headers)),
       body: formData,
       signal: AbortSignal.timeout(this.timeout),
     });
@@ -233,20 +373,22 @@ export class HttpClient {
     });
 
     if (!res.ok) {
-      let errBody: InfratexErrorBody = {};
-      try {
-        errBody = (await res.json()) as InfratexErrorBody;
-      } catch {
-        // ignore
-      }
-      throw new InfratexError(
-        errBody.message ?? `Request failed with status ${res.status}`,
-        res.status,
-        errBody.code,
-        errBody.details,
-      );
+      throw await errorFromResponse(res);
     }
 
     return res;
   }
 }
+
+/** Extra request headers; `undefined` values are left out. */
+export type RequestHeaders = Record<string, string | undefined>;
+
+function definedHeaders(headers: RequestHeaders | undefined): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const [name, value] of Object.entries(headers ?? {})) {
+    if (value !== undefined) result[name] = value;
+  }
+  return result;
+}
+
+export const IDEMPOTENCY_HEADER = 'Idempotency-Key';

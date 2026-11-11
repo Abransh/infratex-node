@@ -8,6 +8,7 @@ import { Collections } from './resources/collections.js';
 import { Conversations } from './resources/conversations.js';
 import { Account } from './resources/account.js';
 import { Billing } from './resources/billing.js';
+import { Webhooks } from './resources/webhooks.js';
 
 const DEFAULT_BASE_URL = 'https://api.infratex.io';
 const DEFAULT_TIMEOUT = 300_000; // 5 minutes
@@ -21,6 +22,7 @@ export class Infratex {
   readonly conversations: Conversations;
   readonly account: Account;
   readonly billing: Billing;
+  readonly webhooks: Webhooks;
 
   constructor(config: InfratexConfig) {
     if (!config.apiKey) {
@@ -44,5 +46,6 @@ export class Infratex {
     this.conversations = new Conversations(http);
     this.account = new Account(http);
     this.billing = new Billing(http);
+    this.webhooks = new Webhooks(http);
   }
 }

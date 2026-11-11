@@ -1,5 +1,18 @@
 export { Infratex } from './client.js';
-export { InfratexError, BinaryResponse } from './http.js';
+export {
+  InfratexError,
+  InvalidPipelineError,
+  PipelineNotAvailableError,
+  EncryptedPdfError,
+  BinaryResponse,
+} from './http.js';
+export type { InfratexErrorOptions } from './http.js';
+export {
+  verifyWebhookSignature,
+  SIGNATURE_HEADER,
+  EVENT_ID_HEADER,
+} from './signing.js';
+export type { VerifyWebhookSignatureOptions } from './signing.js';
 export { ResponseStream } from './resources/responses.js';
 export { SDK_VERSION } from './version.js';
 
@@ -14,8 +27,14 @@ export type {
   DocumentExtractionPage,
   DocumentFigure,
   DocumentFiguresResponse,
+  DocumentLayout,
+  DocumentLayoutPage,
+  ParseOptions,
   UploadResponse,
   Document,
+  DocumentProgress,
+  DocumentProgressStage,
+  WaitUntilParsedOptions,
   DocumentListResponse,
   UploadOptions,
   ImageUploadOptions,
@@ -40,6 +59,10 @@ export type {
   FieldType,
   FieldDefinition,
   ExtractionModel,
+  ExtractionPipeline,
+  ExtractionPipelineInfo,
+  ExtractionPipelinesResponse,
+  ExtractionFromFileOptions,
   ExtractionStatus,
   ExtractionTier,
   ExportFormat,
@@ -61,6 +84,8 @@ export type {
   Tenant,
   AccountResponse,
   AccountSettings,
+  AccountSettingsUpdateOptions,
+  DataResidency,
   BillingTransaction,
   BillingTransactionListOptions,
   BillingTransactionIterateOptions,
@@ -69,6 +94,16 @@ export type {
   BillingServiceSpend,
   BillingDailySpend,
   BillingSummaryResponse,
+  WebhookEvent,
+  WebhookDeliveryStatus,
+  Webhook,
+  WebhookCreated,
+  WebhookSecretResponse,
+  WebhookCreateOptions,
+  WebhookUpdateOptions,
+  WebhookDelivery,
+  WebhookDeliveryListOptions,
+  WebhookDeliveryListResponse,
 } from './types.js';
 
 // Default export for convenience: `import Infratex from 'infratex'`
