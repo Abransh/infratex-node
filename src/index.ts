@@ -3,6 +3,7 @@ export {
   InfratexError,
   InvalidPipelineError,
   PipelineNotAvailableError,
+  EncryptedPdfError,
   BinaryResponse,
 } from './http.js';
 export type { InfratexErrorOptions } from './http.js';
@@ -31,6 +32,9 @@ export type {
   ParseOptions,
   UploadResponse,
   Document,
+  DocumentProgress,
+  DocumentProgressStage,
+  WaitUntilParsedOptions,
   DocumentListResponse,
   UploadOptions,
   ImageUploadOptions,

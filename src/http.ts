@@ -122,6 +122,24 @@ export class PipelineNotAvailableError extends InfratexError {
   }
 }
 
+/**
+ * 400 `encrypted_pdf`: the uploaded PDF needs a password to open, so its pages
+ * cannot be read. Remove the password and upload it again. Refused before any
+ * credits are held. A PDF with only an owner password is accepted.
+ */
+export class EncryptedPdfError extends InfratexError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'EncryptedPdfError';
+  }
+}
+
 type InfratexErrorClass = new (
   message: string,
   status: number,
@@ -133,6 +151,7 @@ type InfratexErrorClass = new (
 const ERRORS_BY_CODE: Record<string, InfratexErrorClass> = {
   invalid_pipeline: InvalidPipelineError,
   pipeline_not_available: PipelineNotAvailableError,
+  encrypted_pdf: EncryptedPdfError,
 };
 
 function stringList(value: unknown): string[] {

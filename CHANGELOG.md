@@ -40,6 +40,15 @@ Node.js and Python SDKs ship the same API changes under the same version number.
   `listDeliveries` and `retryDelivery`, with the `Webhook*` types. API docs: Webhooks.
 - `verifyWebhookSignature(secret, body, header)`, plus the `SIGNATURE_HEADER` and
   `EVENT_ID_HEADER` names. API docs: Webhooks, "Signatures".
+- `Document.progress` (`DocumentProgress`: `stage` `'queued'` | `'parsing'` | `'finishing'`,
+  `pages_done`, `pages_total`, `attempt`, `max_attempts`, `updated_at`), set while a document
+  is `pending` or `processing` and `null` otherwise. API docs: Parsing, "Progress" (API PR #200).
+- `onProgress` on `documents.waitUntilParsed(id, { onProgress })`: called with the document's
+  progress each time it changes (stage, pages, attempt, or the worker's keepalive
+  `updated_at`). API docs: Parsing, "Progress" and "When processing stalls".
+- `EncryptedPdfError` (400 `encrypted_pdf`, a PDF that needs a password to open), extending
+  `InfratexError`, thrown by uploads before any credits are held. API docs: Reference, Errors
+  (400).
 - `InfratexError.requestId` (the request's id, from the error body or `X-Request-ID`) and
   `InfratexError.retryAfter` (the `Retry-After` header in seconds). API docs: Reference,
   "Retries and idempotency".
@@ -53,6 +62,13 @@ Node.js and Python SDKs ship the same API changes under the same version number.
   error's list of field errors is under `details.errors`.
 - `instanceof` works for subclasses of `InfratexError` (the constructor no longer resets the
   prototype to `InfratexError.prototype`).
+
+### Changed
+
+- When a parse fails, `waitUntilParsed(...)` still throws `InfratexError` with the document's
+  `error_message` (code `document_processing_failed`); the error now also carries
+  `details.document_id`. Its timeout (`upload_timeout`) carries the document id and the last
+  progress seen. API docs: Parsing, "Document status".
 
 ### Not covered yet
 

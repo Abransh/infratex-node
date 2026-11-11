@@ -82,7 +82,13 @@ one parsed as `html` only as HTML.
 `documents.upload(...)` also accepts a Word `.docx`. It is read from the file itself (no
 model call) and billed at the `standard` price whatever `method` you send; the document
 reports `standard` as its method. Legacy `.doc` and macro-enabled `.docm` files are
-rejected with status 415.
+rejected with status 415. A PDF that needs a password to open is rejected at upload with
+`EncryptedPdfError` (400 `encrypted_pdf`), before any credits are held: remove the password
+and upload it again.
+
+If a parse fails, `waitUntilParsed(...)` (and `upload(...)` unless `wait: false`) throws an
+`InfratexError` with the document's `error_message`, which says what went wrong and what to
+do; a failed document is not charged.
 
 ## API reference
 
@@ -129,6 +135,13 @@ const images = await client.documents.uploadImages(['/tmp/page-1.png', '/tmp/pag
 // Queue-first if you want to manage the parse lifecycle yourself.
 const queued = await client.documents.upload('/path/to/file.pdf', { wait: false });
 const ready = await client.documents.waitUntilParsed(queued.id); // or: get(queued.id, { wait: true })
+
+// Progress while pending or processing (null once parsed or failed): stage is
+// 'queued', 'parsing' or 'finishing'; updated_at is refreshed at least every 30 s while it runs.
+await client.documents.waitUntilParsed(queued.id, {
+  onProgress: (p) => console.log(p.stage, `${p.pages_done}/${p.pages_total ?? '?'}`, `attempt ${p.attempt}/${p.max_attempts}`),
+});
+const { progress } = await client.documents.get(queued.id);
 
 // List / get / markdown
 const { documents, total } = await client.documents.list({ limit: 50, status: 'parsed' });
@@ -413,8 +426,9 @@ try {
 }
 ```
 
-`InvalidPipelineError` and `PipelineNotAvailableError` extend `InfratexError` for the two
-extraction `pipeline` refusals; every other API error code is in `err.code`.
+`InvalidPipelineError` and `PipelineNotAvailableError` (the two extraction `pipeline`
+refusals) and `EncryptedPdfError` (a password-protected PDF upload) extend `InfratexError`;
+every other API error code is in `err.code`.
 
 ### Retries and idempotency
 

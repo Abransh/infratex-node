@@ -71,6 +71,31 @@ export interface UploadResponse {
   extraction_pages: DocumentExtractionPage[] | null;
 }
 
+/**
+ * `queued`: waiting for a worker (also after a stopped run went back to the
+ * queue); `parsing`: pages being read; `finishing`: every page through, the
+ * result is being stored.
+ */
+export type DocumentProgressStage = 'queued' | 'parsing' | 'finishing';
+
+/** Where a pending or processing document's parse is. */
+export interface DocumentProgress {
+  stage: DocumentProgressStage;
+  /** Pages finished, including pages kept from a stopped run and pages that failed. */
+  pages_done: number;
+  pages_total: number | null;
+  /** `0` while waiting for the first run; goes up when a stopped run went back to the queue. */
+  attempt: number;
+  /** Runs allowed; when this many have stopped, the document fails. */
+  max_attempts: number;
+  /**
+   * `queued`: when the document entered the queue. `parsing` / `finishing`:
+   * the worker's last report, at least every 30 s; several minutes old means
+   * the run has stopped.
+   */
+  updated_at: string;
+}
+
 export interface Document {
   id: string;
   filename: string;
@@ -87,6 +112,21 @@ export interface Document {
   collection_id: string | null;
   extraction_pages: DocumentExtractionPage[] | null;
   indexes?: DocumentIndex[];
+  /**
+   * Set while the document is `pending` or `processing`; `null` once it is
+   * parsed or failed (and for a moment while processing starts). Absent on
+   * servers that predate it.
+   */
+  progress?: DocumentProgress | null;
+}
+
+export interface WaitUntilParsedOptions {
+  /**
+   * Called with the document's progress each time it differs from the last
+   * one seen: a new stage, page count or attempt, or a fresh `updated_at`
+   * from the worker's keepalive. Not called while the API reports no progress.
+   */
+  onProgress?: (progress: DocumentProgress) => void;
 }
 
 /** A figure cropped from a parsed PDF. */

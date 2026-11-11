@@ -12,6 +12,7 @@ import type {
   DocumentLayout,
   DocumentListOptions,
   DocumentListResponse,
+  DocumentProgress,
   DocumentUpdateOptions,
   ImageUploadOptions,
   IndexCreateOptions,
@@ -20,6 +21,7 @@ import type {
   MarkdownOptions,
   UploadOptions,
   UploadResponse,
+  WaitUntilParsedOptions,
 } from '../types.js';
 
 export class Documents {
@@ -247,9 +249,21 @@ export class Documents {
 
   /**
    * Block until the document finishes parsing and return its markdown payload.
+   *
+   * Throws an `InfratexError` with the document's `error_message` (code
+   * `document_processing_failed`) when the parse fails, and code
+   * `upload_timeout` when the client `timeout` runs out first; both carry the
+   * document id, and the timeout the last progress, in `details`.
+   *
+   * @example
+   * ```ts
+   * await client.documents.waitUntilParsed(doc.id, {
+   *   onProgress: (p) => console.log(p.stage, `${p.pages_done}/${p.pages_total ?? '?'}`),
+   * });
+   * ```
    */
-  async waitUntilParsed(id: string): Promise<UploadResponse> {
-    return this.waitForUploadedDocument(id);
+  async waitUntilParsed(id: string, options?: WaitUntilParsedOptions): Promise<UploadResponse> {
+    return this.waitForUploadedDocument(id, options?.onProgress);
   }
 
   /**
@@ -293,11 +307,20 @@ export class Documents {
     return this.normalizeIndex(await this.http.get<IndexResponse>(`/api/v1/documents/${id}/indexes/${method}`));
   }
 
-  private async waitForUploadedDocument(id: string): Promise<UploadResponse> {
+  private async waitForUploadedDocument(
+    id: string,
+    onProgress?: (progress: DocumentProgress) => void,
+  ): Promise<UploadResponse> {
     const deadline = Date.now() + this.http.timeoutMs;
+    let lastProgress: DocumentProgress | null = null;
 
     while (true) {
       const document = await this.get(id);
+      const progress = document.progress ?? null;
+      if (progress !== null && !sameProgress(progress, lastProgress)) {
+        lastProgress = progress;
+        onProgress?.(progress);
+      }
       if (document.status === 'done' || document.status === 'parsed' || document.status === 'indexed') {
         return {
           id: document.id,
@@ -317,11 +340,15 @@ export class Documents {
           document.error_message ?? 'Document processing failed',
           409,
           'document_processing_failed',
+          { document_id: id },
         );
       }
 
       if (Date.now() >= deadline) {
-        throw new InfratexError('Document processing timed out', 504, 'upload_timeout');
+        throw new InfratexError('Document processing timed out', 504, 'upload_timeout', {
+          document_id: id,
+          progress: lastProgress,
+        });
       }
 
       await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
@@ -369,4 +396,17 @@ export class Documents {
       indexes: document.indexes?.map((index) => this.normalizeIndex(index)),
     };
   }
+}
+
+const PROGRESS_FIELDS = [
+  'stage',
+  'pages_done',
+  'pages_total',
+  'attempt',
+  'max_attempts',
+  'updated_at',
+] as const satisfies readonly (keyof DocumentProgress)[];
+
+function sameProgress(a: DocumentProgress, b: DocumentProgress | null): boolean {
+  return b !== null && PROGRESS_FIELDS.every((field) => a[field] === b[field]);
 }
