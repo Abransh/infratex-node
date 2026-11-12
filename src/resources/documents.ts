@@ -47,7 +47,6 @@ export class Documents {
    * const doc = await client.documents.upload('/path/to/report.pdf', {
    *   method: 'standard-ultra-2',
    *   engine_version: '2.5',
-   *   speed: 'fast',
    * });
    * ```
    */
@@ -73,7 +72,6 @@ export class Documents {
 
     if (options?.method) form.append('method', options.method);
     if (options?.engine_version) form.append('engine_version', options.engine_version);
-    if (options?.speed) form.append('speed', options.speed);
     if (options?.table_format) form.append('table_format', options.table_format);
     if (options?.options !== undefined) form.append('options', JSON.stringify(options.options));
     if (options?.collection_id) form.append('collection_id', options.collection_id);
@@ -114,9 +112,6 @@ export class Documents {
     form.append('method', method);
     if (options?.engine_version) {
       form.append('engine_version', options.engine_version);
-    }
-    if (options?.speed) {
-      form.append('speed', options.speed);
     }
     if (options?.table_format) {
       form.append('table_format', options.table_format);
@@ -197,10 +192,10 @@ export class Documents {
   }
 
   /**
-   * The parse methods' engine versions and speeds (`GET /api/v1/parse-engines`):
-   * one entry per method, with its engine `versions` (`version`, `status`
-   * `stable` or `beta`, and the `default`) and its `speeds`. Available once
-   * the API release that adds the endpoint ships.
+   * The parse methods' engine versions (`GET /api/v1/parse-engines`): one
+   * entry per method, with its engine `versions` (`version`, `status`
+   * `stable` or `beta`, and the `default`). Available once the API release
+   * that adds the endpoint ships.
    *
    * @example
    * ```ts
@@ -363,7 +358,6 @@ export class Documents {
           collection_id: document.collection_id,
           extraction_pages: document.extraction_pages,
           engine_version: document.engine_version ?? null,
-          speed: document.speed ?? null,
         };
       }
 

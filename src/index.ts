@@ -6,8 +6,6 @@ export {
   EncryptedPdfError,
   InvalidEngineVersionError,
   EngineVersionNotSupportedError,
-  InvalidSpeedError,
-  SpeedNotSupportedError,
   BinaryResponse,
 } from './http.js';
 export type { InfratexErrorOptions } from './http.js';
@@ -26,7 +24,6 @@ export type {
   InfratexErrorBody,
   ParseMethod,
   ParseEngineVersion,
-  ParseSpeed,
   ParseEngine,
   ParseEngineVersionInfo,
   ParseEnginesResponse,

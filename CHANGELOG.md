@@ -8,24 +8,22 @@ Node.js and Python SDKs ship the same API changes under the same version number.
 
 ### Added
 
-- `engine_version` (`'2.0'` | `'2.5'`, the `ParseEngineVersion` type) and `speed`
-  (`'standard'` | `'fast'`, the `ParseSpeed` type) on `documents.upload(...)` and
-  `documents.uploadImages(...)`, sent as form fields only when set. `'2.0'` is the stable
-  engine and the default, `'2.5'` the beta; `'fast'` pages cost 4x the page price. Both apply
-  to `standard-ultra-2` only. Unknown values are passed to the API as they are. API docs:
-  Parsing, `POST /api/v1/documents`.
-- `Document.engine_version` and `Document.speed`, also on the `UploadResponse` that
-  `upload(...)` returns when it waits. `null` for methods without these choices; absent on
-  `Document` when the API does not send them. API docs: Parsing, `GET /api/v1/documents/{id}`.
-- `InvalidEngineVersionError` (422 `invalid_engine_version`),
-  `EngineVersionNotSupportedError` (422 `engine_version_not_supported`), `InvalidSpeedError`
-  (422 `invalid_speed`) and `SpeedNotSupportedError` (422 `speed_not_supported`), extending
+- `engine_version` (`'2.0'` | `'2.5'`, the `ParseEngineVersion` type) on
+  `documents.upload(...)` and `documents.uploadImages(...)`, sent as a form field only when
+  set. `'2.0'` is the stable engine and the default, `'2.5'` the beta. It applies to
+  `standard-ultra-2` only. An unknown value is passed to the API as it is. API docs: Parsing,
+  `POST /api/v1/documents`.
+- `Document.engine_version`, also on the `UploadResponse` that `upload(...)` returns when it
+  waits. `null` for methods without engine versions; absent on `Document` when the API does
+  not send it. API docs: Parsing, `GET /api/v1/documents/{id}`.
+- `InvalidEngineVersionError` (422 `invalid_engine_version`) and
+  `EngineVersionNotSupportedError` (422 `engine_version_not_supported`), extending
   `InfratexError`, with `allowed` read from the error's `details.allowed`. API docs:
   Reference, Errors (422).
 - `documents.parseEngines()` for `GET /api/v1/parse-engines`, returning
   `ParseEnginesResponse`: one `ParseEngine` per method with its `versions`
-  (`ParseEngineVersionInfo`: `version`, `status` `'stable'` | `'beta'`, `default`) and its
-  `speeds`. Available once the API release ships. API docs: Parsing.
+  (`ParseEngineVersionInfo`: `version`, `status` `'stable'` | `'beta'`, `default`).
+  Available once the API release ships. API docs: Parsing.
 
 ## 1.1.0 (unreleased)
 
