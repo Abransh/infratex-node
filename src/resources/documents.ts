@@ -19,6 +19,7 @@ import type {
   IndexMethod,
   IndexResponse,
   MarkdownOptions,
+  ParseEnginesResponse,
   UploadOptions,
   UploadResponse,
   WaitUntilParsedOptions,
@@ -43,6 +44,11 @@ export class Documents {
    * const doc = await client.documents.upload('/path/to/report.pdf');
    * const doc = await client.documents.upload(buffer, { filename: 'report.pdf' });
    * const doc = await client.documents.upload('/path/to/contract.docx');
+   * const doc = await client.documents.upload('/path/to/report.pdf', {
+   *   method: 'standard-ultra-2',
+   *   engine_version: '2.5',
+   *   speed: 'fast',
+   * });
    * ```
    */
   async upload(
@@ -66,6 +72,8 @@ export class Documents {
     form.append('file', new Blob([bytes], { type: documentContentType(filename) }), filename);
 
     if (options?.method) form.append('method', options.method);
+    if (options?.engine_version) form.append('engine_version', options.engine_version);
+    if (options?.speed) form.append('speed', options.speed);
     if (options?.table_format) form.append('table_format', options.table_format);
     if (options?.options !== undefined) form.append('options', JSON.stringify(options.options));
     if (options?.collection_id) form.append('collection_id', options.collection_id);
@@ -104,6 +112,12 @@ export class Documents {
     }
 
     form.append('method', method);
+    if (options?.engine_version) {
+      form.append('engine_version', options.engine_version);
+    }
+    if (options?.speed) {
+      form.append('speed', options.speed);
+    }
     if (options?.table_format) {
       form.append('table_format', options.table_format);
     }
@@ -180,6 +194,22 @@ export class Documents {
    */
   async layout(id: string): Promise<DocumentLayout> {
     return this.http.get<DocumentLayout>(`/api/v1/documents/${id}/layout`);
+  }
+
+  /**
+   * The parse methods' engine versions and speeds (`GET /api/v1/parse-engines`):
+   * one entry per method, with its engine `versions` (`version`, `status`
+   * `stable` or `beta`, and the `default`) and its `speeds`. Available once
+   * the API release that adds the endpoint ships.
+   *
+   * @example
+   * ```ts
+   * const engines = await client.documents.parseEngines();
+   * const ultra = engines.find((engine) => engine.method === 'standard-ultra-2');
+   * ```
+   */
+  async parseEngines(): Promise<ParseEnginesResponse> {
+    return this.http.get<ParseEnginesResponse>('/api/v1/parse-engines');
   }
 
   /**
@@ -332,6 +362,8 @@ export class Documents {
           extraction_ms: document.processing_time_ms ?? 0,
           collection_id: document.collection_id,
           extraction_pages: document.extraction_pages,
+          engine_version: document.engine_version ?? null,
+          speed: document.speed ?? null,
         };
       }
 

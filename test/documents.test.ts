@@ -437,3 +437,123 @@ test('upload of a password-protected PDF throws EncryptedPdfError', async (t) =>
       error.requestId === 'req-3',
   );
 });
+
+test('upload sends engine_version and speed only when given', async (t) => {
+  const requests = mockFetch(t, queued);
+  const client = createClient();
+
+  await client.documents.upload(Buffer.from('%PDF'), {
+    filename: 'a.pdf',
+    method: 'standard-ultra-2',
+    engine_version: '2.5',
+    speed: 'fast',
+    wait: false,
+  });
+  await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', method: 'standard-ultra-2', wait: false });
+
+  const [withFields, withoutFields] = requests.map(formOf);
+  assert.equal(requests[0]?.url.pathname, '/api/v1/documents');
+  assert.equal(withFields?.get('method'), 'standard-ultra-2');
+  assert.equal(withFields?.get('engine_version'), '2.5');
+  assert.equal(withFields?.get('speed'), 'fast');
+  assert.equal(withoutFields?.has('engine_version'), false);
+  assert.equal(withoutFields?.has('speed'), false);
+});
+
+test('uploadImages sends engine_version and speed only when given', async (t) => {
+  const requests = mockFetch(t, queued);
+  const page = await tempFile('page-1.png', Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  const client = createClient();
+
+  await client.documents.uploadImages([page], {
+    method: 'standard-ultra-2',
+    engine_version: '2.0',
+    speed: 'standard',
+    wait: false,
+  });
+  await client.documents.uploadImages([page], { wait: false });
+
+  const [withFields, withoutFields] = requests.map(formOf);
+  assert.equal(requests[0]?.url.pathname, '/api/v1/documents/images');
+  assert.equal(withFields?.get('engine_version'), '2.0');
+  assert.equal(withFields?.get('speed'), 'standard');
+  assert.equal(withoutFields?.has('engine_version'), false);
+  assert.equal(withoutFields?.has('speed'), false);
+});
+
+test('upload passes unknown engine_version and speed values through to the API', async (t) => {
+  const requests = mockFetch(t, queued);
+
+  await createClient().documents.upload(Buffer.from('%PDF'), {
+    filename: 'a.pdf',
+    method: 'standard-ultra-2',
+    engine_version: '3.0' as '2.5',
+    speed: 'turbo' as 'fast',
+    wait: false,
+  });
+
+  const form = formOf(last(requests));
+  assert.equal(form.get('engine_version'), '3.0');
+  assert.equal(form.get('speed'), 'turbo');
+});
+
+test('documents report engine_version and speed', async (t) => {
+  mockFetch(t, () =>
+    json({ ...documentState('parsed', null), method: 'standard-ultra-2', engine_version: '2.5', speed: 'fast' }),
+  );
+
+  const document = await createClient().documents.get('doc-1');
+
+  assert.equal(document.engine_version, '2.5');
+  assert.equal(document.speed, 'fast');
+});
+
+test('a waited upload reports engine_version and speed, null when absent', async (t) => {
+  const parsed = { ...documentState('parsed', null), method: 'standard-ultra-2', engine_version: '2.0', speed: 'fast' };
+  let state: Record<string, unknown> = parsed;
+  mockFetch(t, (request) => {
+    if (request.method === 'POST') return queued();
+    if (request.url.pathname.endsWith('/markdown')) return markdownResponse();
+    return json(state);
+  });
+  const client = withoutPollDelay(createClient());
+
+  const uploaded = await client.documents.upload(Buffer.from('%PDF'), {
+    filename: 'a.pdf',
+    method: 'standard-ultra-2',
+    engine_version: '2.0',
+    speed: 'fast',
+  });
+  assert.equal(uploaded.engine_version, '2.0');
+  assert.equal(uploaded.speed, 'fast');
+
+  state = documentState('parsed', null);
+  const plain = await client.documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf' });
+  assert.equal(plain.engine_version, null);
+  assert.equal(plain.speed, null);
+});
+
+const PARSE_ENGINES = [
+  { method: 'standard', versions: [], speeds: ['standard'] },
+  {
+    method: 'standard-ultra-2',
+    versions: [
+      { version: '2.0', status: 'stable', default: true },
+      { version: '2.5', status: 'beta', default: false },
+    ],
+    speeds: ['standard', 'fast'],
+  },
+];
+
+test('parseEngines returns each method with its versions and speeds', async (t) => {
+  const requests = mockFetch(t, () => json(PARSE_ENGINES));
+
+  const engines = await createClient().documents.parseEngines();
+
+  const request = last(requests);
+  assert.equal(request.method, 'GET');
+  assert.equal(request.url.pathname, '/api/v1/parse-engines');
+  assert.deepEqual(engines, PARSE_ENGINES);
+  const ultra = engines.find((engine) => engine.method === 'standard-ultra-2');
+  assert.equal(ultra?.versions.find((version) => version.default)?.version, '2.0');
+});
