@@ -79,6 +79,23 @@ returns Markdown pipe tables). It is stored with the document: a document parsed
 `otsl` can be read back as either syntax with `documents.markdown(id, { table_format })`,
 one parsed as `html` only as HTML.
 
+`standard-ultra-2` also takes an engine version and a speed:
+
+| Option | Values | Notes |
+|--------|--------|-------|
+| `engine_version` | `'2.0'` (default), `'2.5'` | `'2.0'` is the stable engine, `'2.5'` the beta. |
+| `speed` | `'standard'` (default), `'fast'` | Fast pages cost 4x the page price (12 credits/page). |
+
+Both are sent only when you set them, on `documents.upload(...)` and
+`documents.uploadImages(...)`, and the document reports what it was parsed with in
+`doc.engine_version` and `doc.speed` (`null` for methods without these choices). Any other
+method rejects them: `engine_version` with `EngineVersionNotSupportedError` (422
+`engine_version_not_supported`), `speed: 'fast'` with `SpeedNotSupportedError` (422
+`speed_not_supported`). A value the API does not know throws `InvalidEngineVersionError` (422
+`invalid_engine_version`) or `InvalidSpeedError` (422 `invalid_speed`); each error's `allowed`
+lists the valid values. `client.documents.parseEngines()` lists every method's engine
+versions and speeds (available once the API release that adds it ships).
+
 `documents.upload(...)` also accepts a Word `.docx`. It is read from the file itself (no
 model call) and billed at the `standard` price whatever `method` you send; the document
 reports `standard` as its method. Legacy `.doc` and macro-enabled `.docm` files are
@@ -125,6 +142,19 @@ const { pages } = await client.documents.layout(scan.id);
 for (const page of pages) {
   for (const region of page.regions) console.log(page.page, region.label, region.bbox); // pixels of a width x height image
 }
+
+// standard-ultra-2: pick the engine version ('2.0' stable, '2.5' beta) and speed ('fast' = 4x price).
+const ultra = await client.documents.upload('/path/to/file.pdf', {
+  method: 'standard-ultra-2',
+  engine_version: '2.5',
+  speed: 'fast',
+});
+console.log(ultra.engine_version, ultra.speed); // '2.5' 'fast'
+
+// Which engine versions and speeds each method offers.
+const engines = await client.documents.parseEngines();
+const ultraEngine = engines.find((engine) => engine.method === 'standard-ultra-2');
+console.log(ultraEngine?.versions.find((v) => v.default)?.version, ultraEngine?.speeds);
 
 // Upload an ordered image batch as document pages (file order = page order).
 const images = await client.documents.uploadImages(['/tmp/page-1.png', '/tmp/page-2.png'], {
@@ -427,8 +457,10 @@ try {
 ```
 
 `InvalidPipelineError` and `PipelineNotAvailableError` (the two extraction `pipeline`
-refusals) and `EncryptedPdfError` (a password-protected PDF upload) extend `InfratexError`;
-every other API error code is in `err.code`.
+refusals), `EncryptedPdfError` (a password-protected PDF upload), and
+`InvalidEngineVersionError`, `EngineVersionNotSupportedError`, `InvalidSpeedError` and
+`SpeedNotSupportedError` (the upload `engine_version` and `speed` refusals, with the valid
+values in `err.allowed`) extend `InfratexError`; every other API error code is in `err.code`.
 
 ### Retries and idempotency
 
