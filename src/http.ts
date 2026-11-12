@@ -140,6 +140,86 @@ export class EncryptedPdfError extends InfratexError {
   }
 }
 
+/**
+ * Base of the upload refusals that list the valid values in
+ * `details.allowed`: the `engine_version` and `speed` errors.
+ */
+export class AllowedValuesError extends InfratexError {
+  /** The valid values the API listed in `details.allowed`; empty when it sent none. */
+  get allowed(): string[] {
+    return stringList(this.details?.allowed);
+  }
+}
+
+/**
+ * 422 `invalid_engine_version`: the upload's `engine_version` is not one the
+ * API knows. `allowed` lists the versions it accepts.
+ */
+export class InvalidEngineVersionError extends AllowedValuesError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'InvalidEngineVersionError';
+  }
+}
+
+/**
+ * 422 `engine_version_not_supported`: `engine_version` was sent with a parse
+ * method that has no engine versions to choose from. Only `standard-ultra-2`
+ * takes it.
+ */
+export class EngineVersionNotSupportedError extends AllowedValuesError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'EngineVersionNotSupportedError';
+  }
+}
+
+/**
+ * 422 `invalid_speed`: the upload's `speed` is not `standard` or `fast`.
+ * `allowed` lists the speeds the API accepts.
+ */
+export class InvalidSpeedError extends AllowedValuesError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'InvalidSpeedError';
+  }
+}
+
+/**
+ * 422 `speed_not_supported`: `speed: 'fast'` was sent with a parse method that
+ * has no fast speed. Only `standard-ultra-2` takes it.
+ */
+export class SpeedNotSupportedError extends AllowedValuesError {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    details?: Record<string, unknown>,
+    options?: InfratexErrorOptions,
+  ) {
+    super(message, status, code, details, options);
+    this.name = 'SpeedNotSupportedError';
+  }
+}
+
 type InfratexErrorClass = new (
   message: string,
   status: number,
@@ -152,6 +232,10 @@ const ERRORS_BY_CODE: Record<string, InfratexErrorClass> = {
   invalid_pipeline: InvalidPipelineError,
   pipeline_not_available: PipelineNotAvailableError,
   encrypted_pdf: EncryptedPdfError,
+  invalid_engine_version: InvalidEngineVersionError,
+  engine_version_not_supported: EngineVersionNotSupportedError,
+  invalid_speed: InvalidSpeedError,
+  speed_not_supported: SpeedNotSupportedError,
 };
 
 function stringList(value: unknown): string[] {

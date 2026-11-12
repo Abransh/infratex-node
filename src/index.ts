@@ -4,6 +4,10 @@ export {
   InvalidPipelineError,
   PipelineNotAvailableError,
   EncryptedPdfError,
+  InvalidEngineVersionError,
+  EngineVersionNotSupportedError,
+  InvalidSpeedError,
+  SpeedNotSupportedError,
   BinaryResponse,
 } from './http.js';
 export type { InfratexErrorOptions } from './http.js';
@@ -21,6 +25,11 @@ export type {
   InfratexConfig,
   InfratexErrorBody,
   ParseMethod,
+  ParseEngineVersion,
+  ParseSpeed,
+  ParseEngine,
+  ParseEngineVersionInfo,
+  ParseEnginesResponse,
   TableFormat,
   DocStatus,
   DocumentRegion,

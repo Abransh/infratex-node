@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { InfratexError, InvalidPipelineError, PipelineNotAvailableError } from '../src/index.js';
+import {
+  EngineVersionNotSupportedError,
+  InfratexError,
+  InvalidEngineVersionError,
+  InvalidPipelineError,
+  InvalidSpeedError,
+  PipelineNotAvailableError,
+  SpeedNotSupportedError,
+} from '../src/index.js';
 import { createClient, json, mockFetch } from './helpers.js';
 
 async function caught(promise: Promise<unknown>): Promise<InfratexError> {
@@ -130,6 +138,48 @@ test('pipeline_not_available is a PipelineNotAvailableError', async (t) => {
   assert.equal(error.requestedPipeline, 'v2');
   assert.deepEqual(error.availablePipelines, ['legacy']);
   assert.equal(error.requestId, 'req-2');
+});
+
+const ENGINE_REFUSALS = [
+  { code: 'invalid_engine_version', errorClass: InvalidEngineVersionError, allowed: ['2.0', '2.5'] },
+  { code: 'engine_version_not_supported', errorClass: EngineVersionNotSupportedError, allowed: ['standard-ultra-2'] },
+  { code: 'invalid_speed', errorClass: InvalidSpeedError, allowed: ['standard', 'fast'] },
+  { code: 'speed_not_supported', errorClass: SpeedNotSupportedError, allowed: ['standard-ultra-2'] },
+] as const;
+
+for (const { code, errorClass, allowed } of ENGINE_REFUSALS) {
+  test(`${code} is typed as ${errorClass.name}`, async (t) => {
+    mockFetch(t, () =>
+      json({ error: { code, message: 'Refused.', request_id: 'req-4', details: { allowed } } }, 422),
+    );
+
+    const error = await caught(
+      createClient().documents.upload(Buffer.from('%PDF'), {
+        filename: 'a.pdf',
+        method: 'standard-ultra-2',
+        engine_version: '2.5',
+        wait: false,
+      }),
+    );
+
+    assert.ok(error instanceof errorClass);
+    assert.equal(error.name, errorClass.name);
+    assert.equal(error.status, 422);
+    assert.equal(error.code, code);
+    assert.equal(error.requestId, 'req-4');
+    assert.deepEqual(error.allowed, allowed);
+  });
+}
+
+test('allowed is empty when the API sends no details', async (t) => {
+  mockFetch(t, () => json({ error: { code: 'speed_not_supported', message: 'Refused.', details: null } }, 422));
+
+  const error = await caught(
+    createClient().documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', method: 'max', speed: 'fast', wait: false }),
+  );
+
+  assert.ok(error instanceof SpeedNotSupportedError);
+  assert.deepEqual(error.allowed, []);
 });
 
 test('streamed responses throw the same errors', async (t) => {
