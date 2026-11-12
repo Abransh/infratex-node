@@ -44,11 +44,6 @@ export type TableFormat = 'otsl' | 'html';
  * `standard-ultra-2` only.
  */
 export type ParseEngineVersion = '2.0' | '2.5';
-/**
- * Parse speed: `standard` (the server default) or `fast`. `fast` is
- * `standard-ultra-2` only and costs 4x the page price.
- */
-export type ParseSpeed = 'standard' | 'fast';
 export type DocStatus = 'pending' | 'processing' | 'done' | 'parsed' | 'indexed' | 'error';
 export type IndexStatus = 'pending' | 'processing' | 'indexed' | 'error';
 
@@ -81,8 +76,6 @@ export interface UploadResponse {
   extraction_pages: DocumentExtractionPage[] | null;
   /** As {@link Document.engine_version}. */
   engine_version?: string | null;
-  /** As {@link Document.speed}. */
-  speed?: string | null;
 }
 
 /**
@@ -138,11 +131,6 @@ export interface Document {
    * predate it.
    */
   engine_version?: string | null;
-  /**
-   * The parse speed (`standard` or `fast`); `null` for methods without a
-   * speed choice. Absent on servers that predate it.
-   */
-  speed?: string | null;
 }
 
 export interface WaitUntilParsedOptions {
@@ -245,11 +233,10 @@ export interface ParseEngineVersionInfo {
   default: boolean;
 }
 
-/** A parse method's engine versions and speeds. */
+/** A parse method's engine versions. */
 export interface ParseEngine {
   method: string;
   versions: ParseEngineVersionInfo[];
-  speeds: string[];
 }
 
 /** `GET /api/v1/parse-engines`: one entry per parse method. */
@@ -280,14 +267,6 @@ export interface UploadOptions {
    * The document reports the version it was parsed with in `engine_version`.
    */
   engine_version?: ParseEngineVersion;
-  /**
-   * `standard-ultra-2` only: `standard` (the server default) or `fast`. Fast
-   * pages cost 4x the page price. Sent only when set. Any other value throws
-   * {@link InvalidSpeedError} (422 `invalid_speed`); `fast` with another
-   * method throws {@link SpeedNotSupportedError} (422 `speed_not_supported`).
-   * The document reports its speed in `speed`.
-   */
-  speed?: ParseSpeed;
   /** Table syntax: `otsl` (server default) or `html`. See {@link TableFormat}. */
   table_format?: TableFormat;
   /** `infratex-gamma` only: parse options. Sent only when set. */
@@ -319,14 +298,6 @@ export interface ImageUploadOptions {
    * The document reports the version it was parsed with in `engine_version`.
    */
   engine_version?: ParseEngineVersion;
-  /**
-   * `standard-ultra-2` only: `standard` (the server default) or `fast`. Fast
-   * pages cost 4x the page price. Sent only when set. Any other value throws
-   * {@link InvalidSpeedError} (422 `invalid_speed`); `fast` with another
-   * method throws {@link SpeedNotSupportedError} (422 `speed_not_supported`).
-   * The document reports its speed in `speed`.
-   */
-  speed?: ParseSpeed;
   /** Table syntax: `otsl` (server default) or `html`. See {@link TableFormat}. */
   table_format?: TableFormat;
   /** `infratex-gamma` only: parse options. Sent only when set. */

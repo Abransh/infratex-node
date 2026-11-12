@@ -5,9 +5,7 @@ import {
   InfratexError,
   InvalidEngineVersionError,
   InvalidPipelineError,
-  InvalidSpeedError,
   PipelineNotAvailableError,
-  SpeedNotSupportedError,
 } from '../src/index.js';
 import { createClient, json, mockFetch } from './helpers.js';
 
@@ -143,8 +141,6 @@ test('pipeline_not_available is a PipelineNotAvailableError', async (t) => {
 const ENGINE_REFUSALS = [
   { code: 'invalid_engine_version', errorClass: InvalidEngineVersionError, allowed: ['2.0', '2.5'] },
   { code: 'engine_version_not_supported', errorClass: EngineVersionNotSupportedError, allowed: ['standard-ultra-2'] },
-  { code: 'invalid_speed', errorClass: InvalidSpeedError, allowed: ['standard', 'fast'] },
-  { code: 'speed_not_supported', errorClass: SpeedNotSupportedError, allowed: ['standard-ultra-2'] },
 ] as const;
 
 for (const { code, errorClass, allowed } of ENGINE_REFUSALS) {
@@ -172,13 +168,15 @@ for (const { code, errorClass, allowed } of ENGINE_REFUSALS) {
 }
 
 test('allowed is empty when the API sends no details', async (t) => {
-  mockFetch(t, () => json({ error: { code: 'speed_not_supported', message: 'Refused.', details: null } }, 422));
-
-  const error = await caught(
-    createClient().documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', method: 'max', speed: 'fast', wait: false }),
+  mockFetch(t, () =>
+    json({ error: { code: 'engine_version_not_supported', message: 'Refused.', details: null } }, 422),
   );
 
-  assert.ok(error instanceof SpeedNotSupportedError);
+  const error = await caught(
+    createClient().documents.upload(Buffer.from('%PDF'), { filename: 'a.pdf', method: 'max', engine_version: '2.5', wait: false }),
+  );
+
+  assert.ok(error instanceof EngineVersionNotSupportedError);
   assert.deepEqual(error.allowed, []);
 });
 
